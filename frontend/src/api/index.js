@@ -33,6 +33,7 @@ export const taskApi = {
   publish: (taskId) => request.post(`/task/${taskId}/publish`),
   update: (taskId, payload) => request.post(`/task/${taskId}/update`, payload),
   withdraw: (taskId, payload) => request.post(`/task/${taskId}/withdraw`, payload),
+  reopen: (taskId, payload) => request.post(`/task/${taskId}/reopen`, payload),
   myTasks: () => request.get('/task/my'),
   detail: (taskId) => request.get(`/task/${taskId}`),
   progress: (taskId) => request.get(`/task/${taskId}/progress`)

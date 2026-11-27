@@ -192,7 +192,7 @@ const seed = {
   },
   tasks: [
     { id: 'T1', name: '劳务合同纠纷标注（第一期）', guide: 'v1.2', documentId: 'D1', annotators: ['刘标注', '陈标注'], annotatorIds: ['u3', 'u4'], arbiter: '王仲裁', arbiterId: 'u6', managerId: 'u8', due: '2026-10-15', status: 'PUBLISHED', teaching: false },
-    { id: 'T2', name: '买卖合同纠纷标注', guide: 'v1.2', documentId: 'D4', annotators: ['刘标注', '陈标注'], annotatorIds: ['u3', 'u4'], arbiter: '王仲裁', arbiterId: 'u6', managerId: 'u8', due: '2026-09-30', status: 'STRUCTURED', teaching: false },
+    { id: 'T2', name: '买卖合同纠纷标注', guide: 'v1.2', documentId: 'D4', annotators: ['刘标注', '陈标注'], annotatorIds: ['u3', 'u4'], arbiter: '王仲裁', arbiterId: 'u6', managerId: 'u8', due: '2026-09-30', status: 'STRUCTURED_PENDING', teaching: false },
     { id: 'T3', name: '租赁合同纠纷标注', guide: 'v1.1', documentId: 'D6', annotators: ['刘标注', '陈标注'], annotatorIds: ['u3', 'u4'], arbiter: '王仲裁', arbiterId: 'u6', managerId: 'u8', due: '2026-09-10', status: 'CONFIRMED', teaching: false },
     { id: 'T4', name: '教学练习：文书一标准样例', guide: 'v1.2', documentId: 'D10', annotators: ['张三'], annotatorIds: ['u5'], arbiter: '赵老师', arbiterId: 'u2', managerId: 'u2', due: '', status: 'PUBLISHED', teaching: true }
   ],
