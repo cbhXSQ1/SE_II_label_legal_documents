@@ -22,9 +22,18 @@ export const adminApi = {
 
 // ==================== 文书 ====================
 export const documentApi = {
+  list: (params) => request.get('/document/list', { params }),
   upload: (payload) => request.post('/document/upload', payload),
   detail: (documentId) => request.get(`/document/${documentId}`),
   saveCaseInfo: (documentId, payload) => request.post(`/document/${documentId}/case-info`, payload)
+}
+
+// ==================== 用户 / 指南（公共查询） ====================
+export const userApi = {
+  list: (params) => request.get('/user/list', { params })
+}
+export const guideApi = {
+  list: () => request.get('/guide/list')
 }
 
 // ==================== 任务 ====================

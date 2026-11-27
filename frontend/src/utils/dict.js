@@ -92,3 +92,25 @@ export const QUESTION_TYPES = [
 
 export function identityName(v) { return IDENTITIES[v] || v }
 export function systemName(v) { return SYSTEMS[v] || v }
+
+// 任务状态（与 SRS 3.2.0 表一致）
+export const TASK_STATUS = {
+  DRAFT: '草稿',
+  PUBLISHED: '已发布',
+  CUTTING_PENDING: '切分待裁定',
+  CUTTING_CONFIRMED: '切分已确认',
+  STRUCTURED_PENDING: '结构化待裁定',
+  CONFIRMED: '已确认',
+  WITHDRAWN: '已撤回',
+  REOPENED: '重开中'
+}
+export const TASK_STATUS_TAG = {
+  DRAFT: 'info',
+  PUBLISHED: 'primary',
+  CUTTING_PENDING: 'warning',
+  CUTTING_CONFIRMED: 'success',
+  STRUCTURED_PENDING: 'warning',
+  CONFIRMED: 'success',
+  WITHDRAWN: 'danger',
+  REOPENED: 'warning'
+}

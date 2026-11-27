@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/store/auth'
 import { taskApi } from '@/api'
 import { navFor } from '@/utils/nav'
+import { TASK_STATUS, TASK_STATUS_TAG } from '@/utils/dict'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -13,9 +14,7 @@ const tasks = ref([])
 const loading = ref(false)
 const quickLinks = computed(() => navFor(auth.identity).filter((n) => n.path !== '/'))
 
-const STATUS = { DRAFT: '草稿', PUBLISHED: '已发布', CUTTING_PENDING: '切分待裁定', CUTTING_CONFIRMED: '切分已确认', STRUCTURED_PENDING: '结构化待裁定', CONFIRMED: '已确认', WITHDRAWN: '已撤回', REOPENED: '重开中' }
-const STATUS_TAG = { DRAFT: 'info', PUBLISHED: 'primary', CUTTING_PENDING: 'warning', CUTTING_CONFIRMED: 'success', STRUCTURED_PENDING: 'warning', CONFIRMED: 'success', WITHDRAWN: 'danger', REOPENED: 'warning' }
-function statusText(s) { return STATUS[s] || s }
+function statusText(s) { return TASK_STATUS[s] || s }
 
 function openTask(task) {
   if (auth.identity === 'ANNOTATOR') {
@@ -62,7 +61,7 @@ onMounted(async () => {
         <el-table-column prop="arbiter" label="仲裁员" width="90" />
         <el-table-column label="状态" width="120">
           <template #default="{ row }">
-            <el-tag :type="STATUS_TAG[row.status]" size="small">{{ statusText(row.status) }}</el-tag>
+            <el-tag :type="TASK_STATUS_TAG[row.status]" size="small">{{ statusText(row.status) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="140">

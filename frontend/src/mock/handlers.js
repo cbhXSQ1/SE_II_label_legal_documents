@@ -162,6 +162,121 @@ function decide(ctx) {
   return ok(null, ['继续裁定', '查看未裁定项'])
 }
 
+// —— 任务管理 / 文书 / 导出 ——
+const nameOf = (db, id) => {
+  const a = db.accounts.find((x) => x.id === id)
+  return a ? a.name : id
+}
+
+function documentList(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  const docs = ctx.db.documents.map((d) => ({ ...d }))
+  return ok({ records: docs, total: docs.length, page: 1, size: 20 })
+}
+
+function userList(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  const identity = ctx.params.identity
+  const users = []
+  for (const a of ctx.db.accounts) {
+    if (identity && !a.roles.includes(identity)) continue
+    for (const role of a.roles) {
+      if (identity && role !== identity) continue
+      users.push({ id: a.id, name: a.name, identity: role })
+    }
+  }
+  return ok({ users })
+}
+
+function guideList(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  const versions = [{ version: ctx.db.guide.version, importedAt: ctx.db.guide.importedAt, operator: ctx.db.guide.operator, scope: ctx.db.guide.scope }]
+  return ok({ versions })
+}
+
+function uploadDocument(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  const { title, type, caseNo } = ctx.body || {}
+  const id = 'D' + (ctx.db.documents.length + 1)
+  const doc = { id, taskId: '', title: title || '未命名文书', caseNo: caseNo || '', type: type || '原始判决书' }
+  ctx.db.documents.push(doc)
+  return ok({ documentId: id, title: doc.title, caseNo: doc.caseNo, type: doc.type, reasonText: '', caseInfo: null, duplicated: false })
+}
+
+function createTask(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  const { name, description, deadline, guideVersion, documentId, annotatorIds, arbiterId, draft } = ctx.body || {}
+  if (!annotatorIds || annotatorIds.length < 2) return fail('至少需要两名标注员')
+  if (!arbiterId) return fail('请选择一名仲裁员')
+  const id = 'T' + (ctx.db.tasks.length + 1)
+  ctx.db.tasks.push({
+    id, name: name || '未命名任务', guide: guideVersion || 'v1.2', documentId,
+    annotators: annotatorIds.map((x) => nameOf(ctx.db, x)),
+    annotatorIds, arbiter: nameOf(ctx.db, arbiterId), arbiterId,
+    managerId: r.session.accountId, due: deadline || '',
+    status: draft ? 'DRAFT' : 'PUBLISHED', teaching: false
+  })
+  return ok({ taskId: id })
+}
+
+function publishTask(ctx, path) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  const t = ctx.db.tasks.find((x) => x.id === path.id)
+  if (!t) return fail('任务不存在')
+  t.status = 'PUBLISHED'
+  return ok(null)
+}
+
+function withdrawTask(ctx, path) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  const t = ctx.db.tasks.find((x) => x.id === path.id)
+  if (!t) return fail('任务不存在')
+  t.status = 'WITHDRAWN'
+  return ok(null)
+}
+
+function taskProgress(ctx, path) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  const t = ctx.db.tasks.find((x) => x.id === path.id)
+  if (!t) return fail('任务不存在')
+  const total = (t.annotatorIds || []).length
+  const submitted = t.status === 'CONFIRMED' || t.status === 'STRUCTURED_PENDING' ? total : 0
+  return ok({
+    due: total,
+    submitted,
+    unsubmitted: total - submitted,
+    conflictCount: t.status === 'STRUCTURED_PENDING' ? 3 : 0,
+    confirmedCount: t.status === 'CONFIRMED' ? 1 : 0,
+    annotators: (t.annotators || []).map((n, i) => ({
+      id: (t.annotatorIds || [])[i], name: n,
+      submittedAt: submitted ? '2026-09-28 14:20' : '',
+      status: submitted ? '已提交' : '未提交'
+    }))
+  })
+}
+
+function exportTasks(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  const tasks = ctx.db.tasks.filter((t) => t.status === 'CONFIRMED' && t.managerId === r.session.accountId)
+  return ok({ tasks: tasks.map((t) => ({ id: t.id, name: t.name, confirmedAt: '2026-09-15 10:00', annotatorCount: (t.annotators || []).length, guideVersion: t.guide })) })
+}
+
+function exportCreate(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  const { fileName } = ctx.body || {}
+  return ok({ exportId: 'e' + Date.now(), downloadUrl: '/mock/' + (fileName || 'export') + '.zip' })
+}
+
 // —— 路由表 ——
 const routes = [
   ['post', '/auth/login', login],
@@ -169,13 +284,23 @@ const routes = [
   ['post', '/auth/logout', logout],
   ['post', '/auth/apply', apply],
   ['get', '/auth/options', options],
+  ['get', '/user/list', userList],
+  ['get', '/guide/list', guideList],
   ['get', '/task/my', myTasks],
+  ['get', '/task/:id/progress', taskProgress],
+  ['post', '/task/create', createTask],
+  ['post', '/task/:id/publish', publishTask],
+  ['post', '/task/:id/withdraw', withdrawTask],
+  ['get', '/document/list', documentList],
+  ['post', '/document/upload', uploadDocument],
   ['get', '/document/:id', documentDetail],
   ['get', '/annotation/load', loadAnnotation],
   ['post', '/annotation/draft', saveDraft],
   ['post', '/annotation/submit', submit],
   ['post', '/adjudication/compare', compare],
-  ['post', '/adjudication/decide', decide]
+  ['post', '/adjudication/decide', decide],
+  ['get', '/export/tasks', exportTasks],
+  ['post', '/export/create', exportCreate]
 ]
 
 export function matchRoute(method, url) {

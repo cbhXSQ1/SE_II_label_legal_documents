@@ -29,11 +29,10 @@ const routes = [
       { path: 'admin/overview', name: 'admin-overview', component: ph('总体情况') },
 
       // —— 任务管理 ——
-      { path: 'task/documents', name: 'task-documents', component: ph('文书列表') },
-      { path: 'task/list', name: 'task-list', component: ph('任务列表') },
-      { path: 'task/create', name: 'task-create', component: ph('新建任务') },
-      { path: 'task/progress', name: 'task-progress', component: ph('任务进度') },
-      { path: 'export', name: 'export', component: ph('导出') },
+      { path: 'task/documents', name: 'task-documents', component: () => import('@/views/task/DocumentListView.vue'), meta: { title: '文书列表' } },
+      { path: 'task/list', name: 'task-list', component: () => import('@/views/task/TaskListView.vue'), meta: { title: '任务列表' } },
+      { path: 'task/progress', name: 'task-progress', component: () => import('@/views/task/TaskProgressView.vue'), meta: { title: '任务进度' } },
+      { path: 'export', name: 'export', component: () => import('@/views/export/ExportView.vue'), meta: { title: '导出' } },
 
       // —— 查看与裁定 ——
       { path: 'arbiter/compare', name: 'arbiter-compare', component: ph('查看并比对多人标注结果') },
