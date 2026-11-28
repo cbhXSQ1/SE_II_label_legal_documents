@@ -313,6 +313,286 @@ function teacherScore(ctx) {
   return ok(null)
 }
 
+// —— 裁定：冲突列表 / 专家 / 图示审查 / 最终版本 ——
+function conflicts(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  const diffs = ctx.db.adjudication.diffs
+  const conflicts = diffs.map((d) => ({ conflictId: d.id, differenceType: d.kind, differenceObject: d.target, valueA: d.a, valueB: d.b, note: d.desc, decided: !!d.resolved }))
+  return ok({ conflicts, decidedCount: conflicts.filter((c) => c.decided).length, undecidedCount: conflicts.filter((c) => !c.decided).length })
+}
+
+function expertQuestions(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  const qs = (ctx.db.expertQuestions || []).filter((q) => q.expertId === r.session.accountId)
+  return ok({ records: qs, total: qs.length, page: 1, size: 20 })
+}
+
+function expertReply(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  const { questionId } = ctx.body || {}
+  const q = (ctx.db.expertQuestions || []).find((x) => x.id === questionId)
+  if (q) q.status = 'REPLIED'
+  return ok(null)
+}
+
+function diagramReview(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  return ok(null)
+}
+
+function finalView(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  return ok(ctx.db.finalVersion || null)
+}
+
+function finalConfirm(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  return ok(null)
+}
+
+// —— 通用分页 ——
+function page(list, pageNum = 1, size = 20) {
+  const total = list.length
+  const start = (pageNum - 1) * size
+  return { records: list.slice(start, start + size), total, page: pageNum, size }
+}
+
+// —— 管理后台 ——
+function adminApplications(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  return ok(page(ctx.db.applications.filter((a) => a.status === 'PENDING'), Number(ctx.params.page) || 1))
+}
+function adminReview(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  const { applicationId, action, note } = ctx.body || {}
+  const app = ctx.db.applications.find((x) => x.id === applicationId)
+  if (app) app.status = action === 'APPROVE' ? 'APPROVED' : action === 'REJECT' ? 'REJECTED' : 'RETURNED'
+  return ok(null)
+}
+function adminAccounts(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  const list = ctx.db.accounts.map((a) => ({ id: a.id, account: a.account, name: a.name, unit: a.unit, status: a.status, roles: a.roles }))
+  return ok(page(list, Number(ctx.params.page) || 1))
+}
+function adminUpdateRoles(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  const { accountId, roles, status } = ctx.body || {}
+  const acc = ctx.db.accounts.find((x) => x.id === accountId)
+  if (acc) { if (roles) acc.roles = roles; if (status) acc.status = status }
+  return ok(null)
+}
+function adminGuide(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  const versions = [{ version: ctx.db.guide.version, importedAt: ctx.db.guide.importedAt, operator: ctx.db.guide.operator, scope: ctx.db.guide.scope, status: '可用' }]
+  return ok({ versions, latest: ctx.db.guide.version })
+}
+function adminImportGuide(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  return ok({ version: (ctx.body || {}).version || ctx.db.guide.version })
+}
+function adminOverview(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  const tasks = ctx.db.tasks.map((t) => ({
+    id: t.id, name: t.name, publisher: nameOf(ctx.db, t.managerId), publishedAt: '2026-09-01', deadline: t.due,
+    due: (t.annotators || []).length,
+    submitted: t.status === 'CONFIRMED' || t.status === 'STRUCTURED_PENDING' ? (t.annotators || []).length : 0,
+    unsubmitted: 0, conflictCount: t.status === 'STRUCTURED_PENDING' ? 3 : 0,
+    confirmedCount: t.status === 'CONFIRMED' ? 1 : 0
+  }))
+  return ok({ taskCount: tasks.length, conflictCount: 3, tasks })
+}
+
+// —— 教师 ——
+function teacherPoints(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  return ok(page(ctx.db.knowledgePoints.filter((k) => k.teacherId === r.session.accountId), Number(ctx.params.page) || 1))
+}
+function teacherSavePoint(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  const { id, name, category, description, difficulty } = ctx.body || {}
+  if (ctx.db.knowledgePoints.some((k) => k.name === name && k.id !== id)) return fail('知识点名称已经存在')
+  if (id) { const k = ctx.db.knowledgePoints.find((x) => x.id === id); if (k) Object.assign(k, { name, category, description, difficulty }) }
+  else ctx.db.knowledgePoints.push({ id: 'kp' + (ctx.db.knowledgePoints.length + 1), teacherId: r.session.accountId, name, category, description, difficulty, materialCount: 0, questionCount: 0 })
+  return ok({ id: id || ('kp' + ctx.db.knowledgePoints.length) })
+}
+function teacherDeletePoint(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  ctx.db.knowledgePoints = ctx.db.knowledgePoints.filter((k) => k.id !== (ctx.body || {}).id)
+  return ok(null)
+}
+function teacherMaterials(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  return ok(page(ctx.db.materials.filter((m) => m.teacherId === r.session.accountId)))
+}
+function teacherSaveMaterial(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  const { id, title, type, guideVersion, pointIds, classId, publish } = ctx.body || {}
+  const m = { id: id || ('m' + (ctx.db.materials.length + 1)), teacherId: r.session.accountId, title, type, guideVersion, points: pointIds, classId, status: publish ? '已发布' : '草稿', publishedAt: '2026-09-20 10:00' }
+  if (id) { const old = ctx.db.materials.find((x) => x.id === id); if (old) Object.assign(old, m) } else ctx.db.materials.push(m)
+  return ok({ id: m.id })
+}
+function teacherMaterialStatus(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  const { id, status } = ctx.body || {}
+  const m = ctx.db.materials.find((x) => x.id === id)
+  if (m) m.status = status
+  return ok(null)
+}
+function teacherQuestions(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  return ok(page(ctx.db.questions.filter((q) => q.teacherId === r.session.accountId)))
+}
+function teacherSaveQuestion(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  const { id, type, stem, guideVersion, difficulty, pointIds, options, answer } = ctx.body || {}
+  const q = { id: id || ('q' + (ctx.db.questions.length + 1)), classId: 'c1', teacherId: r.session.accountId, type, stem, difficulty, points: pointIds, options, answer, version: 1, status: '已发布' }
+  if (id) { const old = ctx.db.questions.find((x) => x.id === id); if (old) Object.assign(old, q) } else ctx.db.questions.push(q)
+  return ok({ id: q.id, version: 1 })
+}
+function teacherExercises(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  return ok(page(ctx.db.exercises.filter((e) => e.teacherId === r.session.accountId)))
+}
+function teacherSaveExercise(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  const { id, name, description, deadline, allowRedo, guideVersion, classId, questionIds } = ctx.body || {}
+  const e = { id: id || ('e' + (ctx.db.exercises.length + 1)), teacherId: r.session.accountId, name, description, deadline, allowRedo, guideVersion, classId, questionIds, status: '已发布', publishedAt: '2026-09-21 09:00' }
+  if (id) { const old = ctx.db.exercises.find((x) => x.id === id); if (old) Object.assign(old, e) } else ctx.db.exercises.push(e)
+  return ok({ id: e.id })
+}
+function teacherClassLearning(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  const students = [{ id: 'u5', name: '张三', materials: '1/1', exercises: '1/1', scores: 87.5, weakPoints: ['支持关系'] }]
+  return ok({ students, threshold: 60 })
+}
+function teacherThreshold(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  return ok(null)
+}
+function teacherTargeted(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  return ok({ points: [{ id: 'kp2', name: '支持关系', bestScore: 45 }], questions: ctx.db.questions })
+}
+function teacherFeedback(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  const { answerId, feedback } = ctx.body || {}
+  const a = ctx.db.answers.find((x) => x.id === answerId)
+  if (a) { a.teacherFeedback = { teacher: r.session.name, time: '2026-09-22 21:05', text: feedback }; a.status = '已批改' }
+  return ok(null)
+}
+
+// —— 学生 ——
+function studentMaterials(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  return ok({ materials: ctx.db.materials.filter((m) => m.status === '已发布').map((m) => ({ ...m, completion: '未开始', duration: 0 })) })
+}
+function studentExercises(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  return ok({ exercises: ctx.db.exercises.filter((e) => e.status === '已发布').map((e) => ({ ...e, completion: '已提交' })) })
+}
+function studentExerciseDetail(ctx, path) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  const e = ctx.db.exercises.find((x) => x.id === path.id)
+  if (!e) return fail('练习任务不存在')
+  const questions = e.questionIds.map((qid) => ctx.db.questions.find((q) => q.id === qid)).filter(Boolean)
+  return ok({ ...e, questions })
+}
+function studentAnswerSubmit(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  const id = 'a' + (ctx.db.answers.length + 1)
+  ctx.db.answers.push({ id, studentId: r.session.accountId, exerciseId: (ctx.body || {}).exerciseId, score: 90, status: '待教师批改', submittedAt: '2026-09-22 20:18', differences: [], systemFeedback: '自动比对完成', teacherFeedback: null })
+  return ok({ answerId: id, score: 90, status: '待教师批改', differences: [], systemFeedback: '自动比对完成' })
+}
+function studentAnswerDraft(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  return ok({ savedAt: '2026-09-22 19:00' })
+}
+function studentAnswers(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  return ok({ answers: ctx.db.answers.filter((a) => a.studentId === r.session.accountId) })
+}
+function studentAnswerDetail(ctx, path) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  const a = ctx.db.answers.find((x) => x.id === path.id)
+  if (!a) return fail('作答记录不存在')
+  return ok({ answer: a, differences: a.differences, systemFeedback: a.systemFeedback, teacherFeedback: a.teacherFeedback })
+}
+function studentLearning(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  return ok({ materials: [], answers: ctx.db.answers.filter((a) => a.studentId === r.session.accountId), stats: [{ pointId: 'kp1', practiceCount: 2, bestScore: 90, recentScore: 87.5, completion: '已提交' }] })
+}
+
+// —— 教学管理 ——
+function teachingAdminImport(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  return ok({ importId: 'im' + Date.now(), classCount: 1, studentCount: 2, duplicateStudentNos: [], missingRows: [], unmatchedTeachers: [] })
+}
+function teachingAdminImportResult(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  return ok({ successClasses: 1, successStudents: 2, failedRows: [], downloadUrl: '' })
+}
+function teachingAdminClasses(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  return ok(page(ctx.db.classes.map((c) => ({ id: c.id, code: c.code, name: c.name, term: c.term, teacher: nameOf(ctx.db, c.teacherId), studentCount: c.studentCount }))))
+}
+function teachingAdminAccounts(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  const list = ctx.db.accounts.filter((a) => a.roles.some((role) => role === 'TEACHER' || role === 'STUDENT')).map((a) => ({ id: a.id, account: a.account, name: a.name, identity: a.roles[0], status: a.status, className: '法学2501班' }))
+  return ok(page(list))
+}
+function teachingAdminApplications(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  return ok(page(ctx.db.applications.filter((a) => a.system === 'TEACHING' && a.status === 'PENDING')))
+}
+function teachingAdminReview(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  const { applicationId, action } = ctx.body || {}
+  const app = ctx.db.applications.find((x) => x.id === applicationId)
+  if (app) app.status = action === 'APPROVE' ? 'APPROVED' : action === 'REJECT' ? 'REJECTED' : 'RETURNED'
+  return ok(null)
+}
+
 // —— 路由表 ——
 const routes = [
   ['post', '/auth/login', login],
@@ -335,13 +615,54 @@ const routes = [
   ['post', '/annotation/submit', submit],
   ['post', '/adjudication/compare', compare],
   ['post', '/adjudication/decide', decide],
+  ['get', '/adjudication/conflicts', conflicts],
+  ['get', '/adjudication/expert-questions', expertQuestions],
+  ['post', '/adjudication/expert-reply', expertReply],
+  ['post', '/adjudication/diagram-review', diagramReview],
+  ['get', '/adjudication/final', finalView],
+  ['post', '/adjudication/final-confirm', finalConfirm],
   ['get', '/export/tasks', exportTasks],
   ['post', '/export/create', exportCreate],
   ['post', '/file/upload', fileUpload],
   ['get', '/notification', notificationList],
   ['post', '/notification/read', notificationRead],
   ['post', '/admin/guide/parse', guideParse],
-  ['post', '/teacher/score', teacherScore]
+  ['post', '/teacher/score', teacherScore],
+  ['get', '/admin/applications', adminApplications],
+  ['post', '/admin/applications/review', adminReview],
+  ['get', '/admin/accounts', adminAccounts],
+  ['post', '/admin/accounts/roles', adminUpdateRoles],
+  ['get', '/admin/guide', adminGuide],
+  ['post', '/admin/guide/import', adminImportGuide],
+  ['get', '/admin/overview', adminOverview],
+  ['get', '/teacher/points', teacherPoints],
+  ['post', '/teacher/points', teacherSavePoint],
+  ['post', '/teacher/points/delete', teacherDeletePoint],
+  ['get', '/teacher/materials', teacherMaterials],
+  ['post', '/teacher/materials', teacherSaveMaterial],
+  ['post', '/teacher/materials/status', teacherMaterialStatus],
+  ['get', '/teacher/questions', teacherQuestions],
+  ['post', '/teacher/questions', teacherSaveQuestion],
+  ['get', '/teacher/exercises', teacherExercises],
+  ['post', '/teacher/exercises', teacherSaveExercise],
+  ['get', '/teacher/class-learning', teacherClassLearning],
+  ['post', '/teacher/threshold', teacherThreshold],
+  ['get', '/teacher/targeted', teacherTargeted],
+  ['post', '/teacher/feedback', teacherFeedback],
+  ['get', '/student/materials', studentMaterials],
+  ['get', '/student/exercises', studentExercises],
+  ['get', '/student/exercise/:id', studentExerciseDetail],
+  ['post', '/student/answer/draft', studentAnswerDraft],
+  ['post', '/student/answer/submit', studentAnswerSubmit],
+  ['get', '/student/answers', studentAnswers],
+  ['get', '/student/answer/:id', studentAnswerDetail],
+  ['get', '/student/learning', studentLearning],
+  ['post', '/teaching-admin/import', teachingAdminImport],
+  ['get', '/teaching-admin/import/:id/result', teachingAdminImportResult],
+  ['get', '/teaching-admin/classes', teachingAdminClasses],
+  ['get', '/teaching-admin/accounts', teachingAdminAccounts],
+  ['get', '/teaching-admin/applications', teachingAdminApplications],
+  ['post', '/teaching-admin/applications/review', teachingAdminReview]
 ]
 
 export function matchRoute(method, url) {

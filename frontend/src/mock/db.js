@@ -241,7 +241,45 @@ const seed = {
     comments: [
       { teacher: '赵老师', time: '2026-09-22 21:05', text: '整体结构正确；注意“道义概念（应/应当）是规范判断标志”，P4 属法律关系表述，应为 SM。' }
     ]
-  }
+  },
+  expertQuestions: [
+    { id: 'q1', taskId: 'T1', documentId: 'D1', conflictId: 'd3', guideClause: '指南 8.2.4（关系方向判定）', conflictLabel: '关系方向', annotatorResults: '甲 A(P11, P10)；乙 A(P10, P11)', expertId: 'u7', status: 'PENDING', submittedAt: '2026-09-28 10:12' }
+  ],
+  finalVersion: {
+    taskId: 'T3', documentId: 'D6', guideVersion: 'v1.1', confirmedBy: '王仲裁', confirmedAt: '2026-09-12 16:00', status: 'CONFIRMED'
+  },
+  applications: [
+    { id: 'ap1', name: '周同学', unit: '法学院', system: 'ANNOTATION', identity: 'ANNOTATOR', note: '申请成为标注员，参与课程标注', submittedAt: '2026-09-25 09:00', status: 'PENDING' },
+    { id: 'ap2', name: '吴老师', unit: '法学院', system: 'TEACHING', identity: 'TEACHER', note: '申请教师账号', submittedAt: '2026-09-25 10:30', status: 'PENDING' },
+    { id: 'ap3', name: '郑管理', unit: '课程组', system: 'TEACHING', identity: 'TEACHING_ADMIN', note: '申请教学系统管理员账号', submittedAt: '2026-09-24 14:00', status: 'PENDING' }
+  ],
+  notifications: [
+    { id: 'n1', receiverId: 'u1', content: '周同学申请成为标注员，等待审批', type: '审批', time: '2026-09-25 09:00', read: false }
+  ],
+  knowledgePoints: [
+    { id: 'kp1', teacherId: 'u2', name: '命题要素', category: '命题要素', description: 'SF/GF/SM/GM 及子类型', difficulty: '中', materialCount: 1, questionCount: 2 },
+    { id: 'kp2', teacherId: 'u2', name: '支持关系', category: '关系类型', description: 'S 支持关系的判定', difficulty: '中', materialCount: 1, questionCount: 1 },
+    { id: 'kp3', teacherId: 'u2', name: '文本切割', category: '文本切割', description: '按句号/分号/逗号切分', difficulty: '易', materialCount: 0, questionCount: 1 }
+  ],
+  materials: [
+    { id: 'm1', teacherId: 'u2', title: '指南讲解：命题要素', type: '指南讲解', guideVersion: 'v1.2', points: ['kp1'], classId: 'c1', status: '已发布', publishedAt: '2026-09-20 10:00' }
+  ],
+  questions: [
+    { id: 'q1', classId: 'c1', teacherId: 'u2', type: '单选', stem: '“应当理解为”最可能对应哪一标签？', difficulty: '中', points: ['kp1'], options: ['GM-L 法律条文', 'GM-I 法律解释', 'GM-U 习惯与行业惯例'], answer: 1, version: 1, status: '已发布' },
+    { id: 'q2', classId: 'c1', teacherId: 'u2', type: '切割', stem: '请对裁判理由部分进行切分', difficulty: '中', points: ['kp3'], options: [], answer: null, version: 1, status: '已发布' }
+  ],
+  exercises: [
+    { id: 'e1', teacherId: 'u2', name: '第一次理解确认练习', description: '指南学习后确认理解', deadline: '2026-10-20 23:59', allowRedo: true, guideVersion: 'v1.2', classId: 'c1', questionIds: ['q1'], status: '已发布', publishedAt: '2026-09-21 09:00' }
+  ],
+  answers: [
+    { id: 'a1', studentId: 'u5', exerciseId: 'e1', score: 87.5, status: '已批改', submittedAt: '2026-09-22 20:18', differences: [], systemFeedback: '整体良好', teacherFeedback: { teacher: '赵老师', time: '2026-09-22 21:05', text: '注意道义概念是规范判断标志' } }
+  ],
+  classes: [
+    { id: 'c1', code: 'LAW-2501', name: '法学2501班', term: '2026-2027-1', teacherId: 'u2', studentCount: 1 }
+  ],
+  classMembers: [
+    { classId: 'c1', studentId: 'u5', studentNo: '20250001', joinedAt: '2026-09-01', status: '在班' }
+  ]
 }
 
 // 每次请求临时保存的标注修改（内存态，刷新后回到种子）
@@ -259,6 +297,17 @@ const db = {
   D1: seed.D1,
   adjudication: seed.adjudication,
   teaching: seed.teaching,
+  expertQuestions: seed.expertQuestions,
+  finalVersion: seed.finalVersion,
+  applications: seed.applications,
+  notifications: seed.notifications,
+  knowledgePoints: seed.knowledgePoints,
+  materials: seed.materials,
+  questions: seed.questions,
+  exercises: seed.exercises,
+  answers: seed.answers,
+  classes: seed.classes,
+  classMembers: seed.classMembers,
   annotations,
   session: getSession() || null,
   docSegmentsOf,
