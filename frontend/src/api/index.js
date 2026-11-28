@@ -15,6 +15,7 @@ export const adminApi = {
   review: (payload) => request.post('/admin/applications/review', payload),
   accounts: (params) => request.get('/admin/accounts', { params }),
   updateRoles: (payload) => request.post('/admin/accounts/roles', payload),
+  parseGuide: (payload) => request.post('/admin/guide/parse', payload),
   importGuide: (payload) => request.post('/admin/guide/import', payload),
   guide: () => request.get('/admin/guide'),
   overview: (params) => request.get('/admin/overview', { params })
@@ -92,6 +93,7 @@ export const teacherApi = {
   classLearning: (params) => request.get('/teacher/class-learning', { params }),
   saveThreshold: (payload) => request.post('/teacher/threshold', payload),
   targeted: (params) => request.get('/teacher/targeted', { params }),
+  score: (payload) => request.post('/teacher/score', payload),
   feedback: (payload) => request.post('/teacher/feedback', payload)
 }
 
@@ -115,4 +117,13 @@ export const teachingAdminApi = {
   accounts: (params) => request.get('/teaching-admin/accounts', { params }),
   applications: (params) => request.get('/teaching-admin/applications', { params }),
   review: (payload) => request.post('/teaching-admin/applications/review', payload)
+}
+
+// ==================== 文件 / 通知（公共） ====================
+export const fileApi = {
+  upload: (formData) => request.post('/file/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
+}
+export const notificationApi = {
+  list: (params) => request.get('/notification', { params }),
+  read: (notificationId) => request.post('/notification/read', { notificationId })
 }

@@ -277,6 +277,42 @@ function exportCreate(ctx) {
   return ok({ exportId: 'e' + Date.now(), downloadUrl: '/mock/' + (fileName || 'export') + '.zip' })
 }
 
+// —— 文件 / 通知 / 指南解析 / 教师录分 ——
+function fileUpload(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  return ok({ fileId: 'f' + Date.now(), fileName: '上传文件.docx', format: 'docx' })
+}
+
+function notificationList(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  const notis = (ctx.db.notifications || []).filter((n) => n.receiverId === r.session.accountId)
+  return ok({ records: notis, total: notis.length, page: 1, size: 20 })
+}
+
+function notificationRead(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  const { notificationId } = ctx.body || {}
+  const n = (ctx.db.notifications || []).find((x) => x.id === notificationId)
+  if (n) n.read = true
+  return ok(null)
+}
+
+function guideParse(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  const p = ctx.db.guide.parsed
+  return ok({ content: { nonProps: p.nonProps, props: p.props, relations: p.relations, diagramRules: [] } })
+}
+
+function teacherScore(ctx) {
+  const r = requireSession(ctx)
+  if (r.fail) return fail(r.message)
+  return ok(null)
+}
+
 // —— 路由表 ——
 const routes = [
   ['post', '/auth/login', login],
@@ -300,7 +336,12 @@ const routes = [
   ['post', '/adjudication/compare', compare],
   ['post', '/adjudication/decide', decide],
   ['get', '/export/tasks', exportTasks],
-  ['post', '/export/create', exportCreate]
+  ['post', '/export/create', exportCreate],
+  ['post', '/file/upload', fileUpload],
+  ['get', '/notification', notificationList],
+  ['post', '/notification/read', notificationRead],
+  ['post', '/admin/guide/parse', guideParse],
+  ['post', '/teacher/score', teacherScore]
 ]
 
 export function matchRoute(method, url) {

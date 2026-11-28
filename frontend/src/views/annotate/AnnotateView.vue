@@ -204,14 +204,14 @@ async function regenerate() {
 
 // —— 提交 / 保存 ——
 async function saveDraft() {
-  await annotationApi.saveDraft({ taskId: taskId.value, documentId: documentId.value, pieces: pieces.value, segments: segments.value, relations: relations.value, diagram: diagram.value })
+  await annotationApi.saveDraft({ taskId: taskId.value, documentId: documentId.value, round: 'STRUCTURED', pieces: pieces.value, segments: segments.value, relations: relations.value, diagram: diagram.value })
   ElMessage.success('草稿已保存')
 }
 async function submit() {
   try {
     await ElMessageBox.confirm('提交后保持只读，是否继续提交？', '提交结构化标注', { type: 'warning' })
   } catch (e) { return }
-  await annotationApi.submit({ taskId: taskId.value, documentId: documentId.value, pieces: pieces.value, segments: segments.value, relations: relations.value, diagram: diagram.value })
+  await annotationApi.submit({ taskId: taskId.value, documentId: documentId.value, round: 'STRUCTURED', requestId: 'req-' + Date.now(), pieces: pieces.value, segments: segments.value, relations: relations.value, diagram: diagram.value })
   submitted.value = true
   ElMessage.success('已提交')
 }
