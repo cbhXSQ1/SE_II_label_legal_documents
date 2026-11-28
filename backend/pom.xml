@@ -18,6 +18,7 @@
     <modules>
         <module>legal-common</module>
         <module>legal-data-api</module>
+        <module>legal-data-mysql</module>
         <module>legal-rule-api</module>
     </modules>
 </project>

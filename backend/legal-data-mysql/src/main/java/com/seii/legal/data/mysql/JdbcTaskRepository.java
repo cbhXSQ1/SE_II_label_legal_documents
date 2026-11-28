@@ -1,6 +1,13 @@
 package com.seii.legal.data.mysql;
 
 import com.seii.legal.common.enums.RoundType;
+import com.seii.legal.common.enums.SystemType;
+import com.seii.legal.common.enums.TaskStatus;
+import com.seii.legal.common.page.PageResult;
+import com.seii.legal.data.entity.AnnotationTask;
+import com.seii.legal.data.entity.TaskAssignment;
+import com.seii.legal.data.entity.TaskChangeLog;
+import com.seii.legal.data.entity.TaskProgress;
 import com.seii.legal.data.entity.TaskRound;
 import com.seii.legal.data.repository.DataConflictException;
 import com.seii.legal.data.repository.TaskRepository;
@@ -36,7 +43,7 @@ public class JdbcTaskRepository implements TaskRepository {
     @Override
     public String saveRound(TaskRound round) {
         if (round.closedAt() != null || (round.status() != null && !"OPEN".equals(round.status()))) {
-            throw new IllegalArgumentException("新轮次必须处于打开状态");
+            throw new IllegalArgumentException("新建轮次必须处于打开状态");
         }
         String id = round.roundId() == null ? UUID.randomUUID().toString() : round.roundId();
         try {
@@ -79,5 +86,65 @@ public class JdbcTaskRepository implements TaskRepository {
         if (changed != 1) {
             throw new DataConflictException("轮次不存在、已关闭或关闭时间早于开启时间");
         }
+    }
+
+    @Override
+    public String save(AnnotationTask task) {
+        throw new UnsupportedOperationException("任务主记录尚未迁移");
+    }
+
+    @Override
+    public Optional<AnnotationTask> findById(String taskId) {
+        throw new UnsupportedOperationException("任务主记录尚未迁移");
+    }
+
+    @Override
+    public void update(String taskId, AnnotationTask changes, String operatorId, LocalDateTime time) {
+        throw new UnsupportedOperationException("任务主记录尚未迁移");
+    }
+
+    @Override
+    public void updateStatus(String taskId, TaskStatus status, String operatorId, LocalDateTime time) {
+        throw new UnsupportedOperationException("任务主记录尚未迁移");
+    }
+
+    @Override
+    public void saveAssignment(String taskId, List<String> annotatorIds, String arbiterId, LocalDateTime time) {
+        throw new UnsupportedOperationException("任务分配尚未迁移");
+    }
+
+    @Override
+    public Optional<TaskAssignment> findAssignment(String taskId) {
+        throw new UnsupportedOperationException("任务分配尚未迁移");
+    }
+
+    @Override
+    public PageResult<AnnotationTask> findByManager(String managerId, int page, int size) {
+        throw new UnsupportedOperationException("任务列表尚未迁移");
+    }
+
+    @Override
+    public PageResult<AnnotationTask> findByArbiter(String arbiterId, int page, int size) {
+        throw new UnsupportedOperationException("任务列表尚未迁移");
+    }
+
+    @Override
+    public PageResult<AnnotationTask> findByAnnotator(String annotatorId, int page, int size) {
+        throw new UnsupportedOperationException("任务列表尚未迁移");
+    }
+
+    @Override
+    public PageResult<AnnotationTask> findAll(SystemType system, int page, int size) {
+        throw new UnsupportedOperationException("任务列表尚未迁移");
+    }
+
+    @Override
+    public TaskProgress findProgress(String taskId) {
+        throw new UnsupportedOperationException("任务进度尚未迁移");
+    }
+
+    @Override
+    public void saveChangeLog(TaskChangeLog log) {
+        throw new UnsupportedOperationException("任务变更记录尚未迁移");
     }
 }

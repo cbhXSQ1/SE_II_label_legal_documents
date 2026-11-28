@@ -2,6 +2,11 @@ package com.seii.legal.data.mysql;
 
 import com.seii.legal.common.enums.RoundType;
 import com.seii.legal.common.enums.SubmissionStatus;
+import com.seii.legal.data.entity.CutVersion;
+import com.seii.legal.data.entity.Diagram;
+import com.seii.legal.data.entity.Draft;
+import com.seii.legal.data.entity.Element;
+import com.seii.legal.data.entity.Relation;
 import com.seii.legal.data.entity.Submission;
 import com.seii.legal.data.repository.AnnotationRepository;
 import com.seii.legal.data.repository.DataConflictException;
@@ -41,7 +46,6 @@ public class JdbcAnnotationRepository implements AnnotationRepository {
         if (requestId == null || requestId.isBlank() || submission.status() != SubmissionStatus.SUBMITTED) {
             throw new IllegalArgumentException("正式提交需要请求标识及 SUBMITTED 状态");
         }
-        // Serialize new submissions with round closure. Replays are valid after closure.
         List<Boolean> open = jdbc.query("""
                 SELECT closed_at IS NULL FROM task_round
                 WHERE round_id = ? AND task_id = ? AND document_id = ? AND round_type = ? FOR UPDATE
@@ -69,7 +73,6 @@ public class JdbcAnnotationRepository implements AnnotationRepository {
                     """, id, submission.roundId(), submission.annotatorId(), requestId, submission.guideVersion(),
                     submission.content(), submission.submittedAt());
         } catch (DuplicateKeyException duplicate) {
-            // A transaction that started earlier may have an older consistent-read snapshot.
             Optional<String> existing = findReceipt(submission, requestId, true);
             if (existing.isPresent()) {
                 return existing.get();
@@ -131,5 +134,95 @@ public class JdbcAnnotationRepository implements AnnotationRepository {
                 INSERT INTO submission_status_log(submission_id, old_status, new_status, reason, audit_note)
                 VALUES (?, ?, ?, ?, ?)
                 """, submissionId, previous.get(0), status.name(), returnReason, auditNote);
+    }
+
+    @Override
+    public String saveCutVersion(CutVersion version) {
+        throw new UnsupportedOperationException("切分版本尚未迁移");
+    }
+
+    @Override
+    public Optional<CutVersion> findCutVersion(String versionId) {
+        throw new UnsupportedOperationException("切分版本尚未迁移");
+    }
+
+    @Override
+    public Optional<CutVersion> findCutVersion(String taskId, String documentId, String annotatorId, RoundType round) {
+        throw new UnsupportedOperationException("切分版本尚未迁移");
+    }
+
+    @Override
+    public Optional<CutVersion> findCutVersionByRound(String roundId, String annotatorId) {
+        throw new UnsupportedOperationException("切分版本尚未迁移");
+    }
+
+    @Override
+    public String saveElements(String cutVersionId, List<Element> elements) {
+        throw new UnsupportedOperationException("要素尚未迁移");
+    }
+
+    @Override
+    public List<Element> findElements(String cutVersionId) {
+        throw new UnsupportedOperationException("要素尚未迁移");
+    }
+
+    @Override
+    public List<Element> findElementsByVersion(String elementVersionId) {
+        throw new UnsupportedOperationException("要素尚未迁移");
+    }
+
+    @Override
+    public Optional<String> findLatestElementVersion(String cutVersionId) {
+        throw new UnsupportedOperationException("要素尚未迁移");
+    }
+
+    @Override
+    public String saveRelations(String elementVersionId, List<Relation> relations) {
+        throw new UnsupportedOperationException("关系尚未迁移");
+    }
+
+    @Override
+    public List<Relation> findRelations(String elementVersionId) {
+        throw new UnsupportedOperationException("关系尚未迁移");
+    }
+
+    @Override
+    public List<Relation> findRelationsByVersion(String relationVersionId) {
+        throw new UnsupportedOperationException("关系尚未迁移");
+    }
+
+    @Override
+    public Optional<String> findLatestRelationVersion(String elementVersionId) {
+        throw new UnsupportedOperationException("关系尚未迁移");
+    }
+
+    @Override
+    public String saveDiagram(Diagram diagram) {
+        throw new UnsupportedOperationException("图示尚未迁移");
+    }
+
+    @Override
+    public Optional<Diagram> findDiagram(String diagramId) {
+        throw new UnsupportedOperationException("图示尚未迁移");
+    }
+
+    @Override
+    public Optional<Diagram> findDiagramByRelationVersion(String relationVersionId) {
+        throw new UnsupportedOperationException("图示尚未迁移");
+    }
+
+    @Override
+    public void saveDraft(Draft draft) {
+        throw new UnsupportedOperationException("草稿尚未迁移");
+    }
+
+    @Override
+    public Optional<Draft> findDraft(String taskId, String documentId, String annotatorId) {
+        throw new UnsupportedOperationException("草稿尚未迁移");
+    }
+
+    @Override
+    public Optional<Draft> findDraftByRound(String roundId, String annotatorId) {
+        throw new UnsupportedOperationException("草稿尚未迁移");
     }
 }
