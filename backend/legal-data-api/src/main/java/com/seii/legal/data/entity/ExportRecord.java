@@ -9,7 +9,6 @@ public record ExportRecord(
         String taskId,
         String guideVersion,
         String fileName,
-        String format,
-        String requestId
+        String format
 ) {
 }
