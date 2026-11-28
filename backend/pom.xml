@@ -19,5 +19,6 @@
         <module>legal-common</module>
         <module>legal-data-api</module>
         <module>legal-rule-api</module>
+        <module>legal-function</module>
     </modules>
 </project>
