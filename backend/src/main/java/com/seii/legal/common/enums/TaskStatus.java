@@ -1,0 +1,12 @@
+package com.seii.legal.common.enums;
+
+public enum TaskStatus {
+    DRAFT,
+    PUBLISHED,
+    CUTTING_PENDING,
+    CUTTING_CONFIRMED,
+    STRUCTURED_PENDING,
+    CONFIRMED,
+    WITHDRAWN,
+    REOPENED
+}
