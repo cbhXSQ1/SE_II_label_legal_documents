@@ -75,6 +75,7 @@ class ExportAppServiceTest {
         task("t1", "u-mgr", TaskStatus.CONFIRMED, "d1");
         task("t2", "u-mgr", TaskStatus.PUBLISHED, "d1");
         task("t3", "u-other", TaskStatus.CONFIRMED, "d1");
+        task("t4", "u-mgr", TaskStatus.CONFIRMED, "d1");
         adjudications.finalVersions.put("t1|d1", finalVersion("t1", "d1"));
 
         AppResult<ExportTaskListView> result = service.exportableTasks("cred");

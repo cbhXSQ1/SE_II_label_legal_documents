@@ -93,18 +93,13 @@ class TaskQueryDispatcherTest {
         }
 
         @Override
-        public PageResult<AnnotationTask> queryMyTasks(String accountId, int page, int size) {
+        public PageResult<AnnotationTask> queryMyTasks(String accountId, SystemType system, int page, int size) {
             this.called = true;
             this.accountId = accountId;
+            this.system = system;
             this.page = page;
             this.size = size;
             return result;
-        }
-
-        @Override
-        public PageResult<AnnotationTask> queryMyTasks(String accountId, SystemType system, int page, int size) {
-            this.system = system;
-            return queryMyTasks(accountId, page, size);
         }
     }
 }

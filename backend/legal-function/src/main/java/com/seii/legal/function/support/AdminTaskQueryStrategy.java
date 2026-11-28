@@ -22,11 +22,6 @@ public class AdminTaskQueryStrategy implements TaskQueryStrategy {
     }
 
     @Override
-    public PageResult<AnnotationTask> queryMyTasks(String accountId, int page, int size) {
-        return taskRepository.findAll(SystemType.ANNOTATION, page, size);
-    }
-
-    @Override
     public PageResult<AnnotationTask> queryMyTasks(String accountId, SystemType system, int page, int size) {
         return taskRepository.findAll(system, page, size);
     }

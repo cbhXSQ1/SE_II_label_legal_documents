@@ -16,7 +16,6 @@ import com.seii.legal.data.entity.TaskRound;
 import com.seii.legal.data.repository.AccountRepository;
 import com.seii.legal.data.repository.AnnotationRepository;
 import com.seii.legal.data.repository.GuideRepository;
-import com.seii.legal.data.repository.SessionRepository;
 import com.seii.legal.data.repository.TaskRepository;
 import com.seii.legal.function.dto.task.AnnotatorProgress;
 import com.seii.legal.function.dto.task.CreateTaskCommand;
@@ -28,6 +27,7 @@ import com.seii.legal.function.dto.task.TaskListView;
 import com.seii.legal.function.dto.task.TaskProgressView;
 import com.seii.legal.function.dto.task.UpdateTaskCommand;
 import com.seii.legal.function.dto.task.WithdrawTaskCommand;
+import com.seii.legal.function.support.AuthActionTemplate;
 import com.seii.legal.function.support.TaskDocumentAdapter;
 import com.seii.legal.function.support.TaskQueryDispatcher;
 import com.seii.legal.rule.identity.IdentityRule;
@@ -39,6 +39,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -52,13 +54,12 @@ public class TaskAppService {
     private static final String TASK_MISSING = "任务不存在";
     private static final String NO_ACCESS = "无权查看该任务";
     private static final String CONFIRMED = "任务已确认";
-    private static final String DISABLED = "账号已停用，请联系管理员";
     private static final String NO_IDENTITY = "没有可进入的身份，请重新选择";
     private static final String NO_ROLE = "账号没有该身份";
     private static final String SUBMITTED = "已提交";
     private static final String NOT_SUBMITTED = "未提交";
 
-    private final SessionRepository sessionRepository;
+    private final AuthActionTemplate authTemplate;
     private final AccountRepository accountRepository;
     private final IdentityRule identityRule;
     private final TaskRepository taskRepository;
@@ -68,12 +69,12 @@ public class TaskAppService {
     private final TaskDocumentAdapter documentAdapter;
     private final TaskQueryDispatcher queryDispatcher;
 
-    public TaskAppService(SessionRepository sessionRepository, AccountRepository accountRepository,
+    public TaskAppService(AuthActionTemplate authTemplate, AccountRepository accountRepository,
                           IdentityRule identityRule, TaskRepository taskRepository,
                           AnnotationRepository annotationRepository, GuideRepository guideRepository,
                           TaskRule taskRule, TaskDocumentAdapter documentAdapter,
                           TaskQueryDispatcher queryDispatcher) {
-        this.sessionRepository = sessionRepository;
+        this.authTemplate = authTemplate;
         this.accountRepository = accountRepository;
         this.identityRule = identityRule;
         this.taskRepository = taskRepository;
@@ -86,287 +87,319 @@ public class TaskAppService {
 
     @Transactional
     public AppResult<TaskIdView> create(String credential, CreateTaskCommand command) {
-        LoginUser user = requireUser(credential);
-        Account account = requireAccount(user);
-        if (!identityRule.isEnabled(account)) {
-            return AppResult.fail(DISABLED);
-        }
-        if (!identityRule.hasRole(account, IdentityType.TASK_MANAGER)) {
-            return AppResult.fail(ONLY_MANAGER);
-        }
-        List<String> annotatorIds = safeList(command.annotatorIds());
-        if (!taskRule.hasEnoughAnnotators(annotatorIds)) {
-            return AppResult.fail("至少需要两名标注员");
-        }
-        if (!taskRule.hasSingleArbiter(command.arbiterId())) {
-            return AppResult.fail("请选择一名仲裁员");
-        }
-        LocalDateTime deadline = parseTime(command.deadline());
-        List<String> documentIds = documentAdapter.toDocumentIds(command.documentId());
-        SystemType system = user.system() != null ? user.system() : SystemType.ANNOTATION;
+        return authTemplate.execute(credential, Set.of(IdentityType.TASK_MANAGER), null, null,
+                ONLY_MANAGER, ctx -> {
+                    LoginUser user = ctx.user();
+                    List<String> annotatorIds = safeList(command.annotatorIds());
+                    if (!taskRule.hasEnoughAnnotators(annotatorIds)) {
+                        return AppResult.fail("至少需要两名标注员");
+                    }
+                    if (!taskRule.hasSingleArbiter(command.arbiterId())) {
+                        return AppResult.fail("请选择一名仲裁员");
+                    }
+                    LocalDateTime deadline = parseTime(command.deadline());
+                    List<String> documentIds = documentAdapter.toDocumentIds(command.documentId());
+                    SystemType system = user.system() != null ? user.system() : SystemType.ANNOTATION;
 
-        AnnotationTask draft = new AnnotationTask(null, system, command.name(), command.description(),
-                deadline, command.guideVersion(), documentIds, annotatorIds, command.arbiterId(),
-                TaskStatus.DRAFT, true, user.accountId(), null, null);
-        List<String> missing = taskRule.checkPublish(draft);
-        if (missing != null && !missing.isEmpty()) {
-            return AppResult.fail("缺少：" + String.join("、", missing));
-        }
+                    AnnotationTask draft = new AnnotationTask(null, system, command.name(),
+                            command.description(), deadline, command.guideVersion(), documentIds,
+                            annotatorIds, command.arbiterId(), TaskStatus.DRAFT, true,
+                            user.accountId(), null, null);
+                    List<String> missing = taskRule.checkPublish(draft);
+                    if (missing != null && !missing.isEmpty()) {
+                        return AppResult.fail("缺少：" + String.join("、", missing));
+                    }
 
-        TaskStatus status = TaskStatus.DRAFT;
-        LocalDateTime publishedAt = null;
-        if (!command.draft()) {
-            TaskStatus next = taskRule.nextStatus(TaskStatus.DRAFT, TaskRule.TaskAction.PUBLISH);
-            status = next != null ? next : TaskStatus.PUBLISHED;
-            publishedAt = LocalDateTime.now();
-        }
-        AnnotationTask task = new AnnotationTask(null, system, command.name(), command.description(),
-                deadline, command.guideVersion(), documentIds, annotatorIds, command.arbiterId(),
-                status, true, user.accountId(), publishedAt, null);
-        String taskId = taskRepository.save(task);
-        LocalDateTime now = LocalDateTime.now();
-        taskRepository.saveAssignment(taskId, annotatorIds, command.arbiterId(), now);
-        guideRepository.saveReference(TASK_REFERENCE, taskId, command.guideVersion());
-        if (!documentIds.isEmpty()) {
-            taskRepository.saveRound(new TaskRound(null, taskId, documentIds.get(0), RoundType.CUTTING,
-                    1, ROUND_OPEN, now, null));
-        }
-        return AppResult.ok(new TaskIdView(taskId));
+                    TaskStatus status = TaskStatus.DRAFT;
+                    LocalDateTime publishedAt = null;
+                    if (!command.draft()) {
+                        TaskStatus next = taskRule.nextStatus(
+                                TaskStatus.DRAFT, TaskRule.TaskAction.PUBLISH);
+                        status = next != null ? next : TaskStatus.PUBLISHED;
+                        publishedAt = LocalDateTime.now();
+                    }
+                    AnnotationTask task = new AnnotationTask(null, system, command.name(),
+                            command.description(), deadline, command.guideVersion(), documentIds,
+                            annotatorIds, command.arbiterId(), status, true, user.accountId(),
+                            publishedAt, null);
+                    String taskId = taskRepository.save(task);
+                    LocalDateTime now = LocalDateTime.now();
+                    taskRepository.saveAssignment(taskId, annotatorIds, command.arbiterId(), now);
+                    guideRepository.saveReference(TASK_REFERENCE, taskId, command.guideVersion());
+                    if (!documentIds.isEmpty()) {
+                        taskRepository.saveRound(new TaskRound(null, taskId, documentIds.get(0),
+                                RoundType.CUTTING, 1, ROUND_OPEN, now, null));
+                    }
+                    return AppResult.ok(new TaskIdView(taskId));
+                });
     }
 
     @Transactional
     public AppResult<Void> publish(String credential, String taskId) {
-        LoginUser user = requireUser(credential);
-        Account account = requireAccount(user);
-        if (!identityRule.isEnabled(account)) {
-            return AppResult.fail(DISABLED);
-        }
-        if (!identityRule.hasRole(account, IdentityType.TASK_MANAGER)) {
-            return AppResult.fail(ONLY_MANAGER);
-        }
-        AnnotationTask task = taskRepository.findById(taskId).orElse(null);
-        if (task == null) {
-            return AppResult.fail(TASK_MISSING);
-        }
-        if (!account.accountId().equals(task.publisherId())) {
-            return AppResult.fail(ONLY_MANAGER);
-        }
-        if (task.status() == TaskStatus.CONFIRMED) {
-            return AppResult.fail(CONFIRMED);
-        }
-        if (task.status() == TaskStatus.WITHDRAWN) {
-            return AppResult.fail("任务已撤回");
-        }
-        TaskStatus next = taskRule.nextStatus(task.status(), TaskRule.TaskAction.PUBLISH);
-        if (next == null) {
-            return AppResult.fail("当前状态不能发布");
-        }
-        taskRepository.updateStatus(taskId, next, user.accountId(), LocalDateTime.now());
-        return AppResult.ok(null);
+        return authTemplate.execute(credential, Set.of(IdentityType.TASK_MANAGER), taskId, null,
+                ONLY_MANAGER, ctx -> {
+                    AnnotationTask task = taskRepository.findById(taskId).orElse(null);
+                    if (task == null) {
+                        return AppResult.fail(TASK_MISSING);
+                    }
+                    if (!ctx.account().accountId().equals(task.publisherId())) {
+                        return AppResult.fail(ONLY_MANAGER);
+                    }
+                    if (task.status() == TaskStatus.CONFIRMED) {
+                        return AppResult.fail(CONFIRMED);
+                    }
+                    if (task.status() == TaskStatus.WITHDRAWN) {
+                        return AppResult.fail("任务已撤回");
+                    }
+                    TaskStatus next = taskRule.nextStatus(
+                            task.status(), TaskRule.TaskAction.PUBLISH);
+                    if (next == null) {
+                        return AppResult.fail("当前状态不能发布");
+                    }
+                    taskRepository.updateStatus(taskId, next, ctx.user().accountId(),
+                            LocalDateTime.now());
+                    return AppResult.ok(null);
+                });
     }
 
     @Transactional
     public AppResult<Void> update(String credential, String taskId, UpdateTaskCommand command) {
-        LoginUser user = requireUser(credential);
-        Account account = requireAccount(user);
-        if (!identityRule.isEnabled(account)) {
-            return AppResult.fail(DISABLED);
-        }
-        if (!identityRule.hasRole(account, IdentityType.TASK_MANAGER)) {
-            return AppResult.fail(ONLY_MANAGER);
-        }
-        AnnotationTask task = taskRepository.findById(taskId).orElse(null);
-        if (task == null) {
-            return AppResult.fail(TASK_MISSING);
-        }
-        if (!account.accountId().equals(task.publisherId())) {
-            return AppResult.fail(ONLY_MANAGER);
-        }
-        if (task.status() == TaskStatus.CONFIRMED) {
-            return AppResult.fail(CONFIRMED);
-        }
-        if (task.status() == TaskStatus.WITHDRAWN) {
-            return AppResult.fail("任务已撤回");
-        }
-        TaskStatus next = taskRule.nextStatus(task.status(), TaskRule.TaskAction.UPDATE);
-        if (next == null) {
-            return AppResult.fail("当前状态不能修改");
-        }
-        String description = command.description() != null ? command.description() : task.description();
-        LocalDateTime deadline = command.deadline() != null ? parseTime(command.deadline()) : task.deadline();
-        List<String> annotatorIds = command.annotatorIds() != null
-                ? safeList(command.annotatorIds()) : task.annotatorIds();
-        String arbiterId = command.arbiterId() != null ? command.arbiterId() : task.arbiterId();
-        AnnotationTask changes = new AnnotationTask(task.taskId(), task.system(), task.name(), description,
-                deadline, task.guideVersion(), task.documentIds(), annotatorIds, arbiterId,
-                next, task.draftAllowed(), task.publisherId(), task.publishedAt(),
-                task.withdrawReason());
-        LocalDateTime now = LocalDateTime.now();
-        taskRepository.update(taskId, changes, user.accountId(), now);
-        if (command.annotatorIds() != null || command.arbiterId() != null) {
-            taskRepository.saveAssignment(taskId, annotatorIds, arbiterId, now);
-        }
-        return AppResult.ok(null);
+        return authTemplate.execute(credential, Set.of(IdentityType.TASK_MANAGER), taskId, null,
+                ONLY_MANAGER, ctx -> {
+                    AnnotationTask task = taskRepository.findById(taskId).orElse(null);
+                    if (task == null) {
+                        return AppResult.fail(TASK_MISSING);
+                    }
+                    if (!ctx.account().accountId().equals(task.publisherId())) {
+                        return AppResult.fail(ONLY_MANAGER);
+                    }
+                    if (task.status() == TaskStatus.CONFIRMED) {
+                        return AppResult.fail(CONFIRMED);
+                    }
+                    if (task.status() == TaskStatus.WITHDRAWN) {
+                        return AppResult.fail("任务已撤回");
+                    }
+                    TaskStatus next = taskRule.nextStatus(
+                            task.status(), TaskRule.TaskAction.UPDATE);
+                    if (next == null) {
+                        return AppResult.fail("当前状态不能修改");
+                    }
+                    String description = command.description() != null
+                            ? command.description() : task.description();
+                    LocalDateTime deadline = command.deadline() != null
+                            ? parseTime(command.deadline()) : task.deadline();
+                    List<String> annotatorIds = command.annotatorIds() != null
+                            ? safeList(command.annotatorIds()) : task.annotatorIds();
+                    String arbiterId = command.arbiterId() != null
+                            ? command.arbiterId() : task.arbiterId();
+                    AnnotationTask changes = new AnnotationTask(task.taskId(), task.system(),
+                            task.name(), description, deadline, task.guideVersion(),
+                            task.documentIds(), annotatorIds, arbiterId, next, task.draftAllowed(),
+                            task.publisherId(), task.publishedAt(), task.withdrawReason());
+                    LocalDateTime now = LocalDateTime.now();
+                    taskRepository.update(taskId, changes, ctx.user().accountId(), now);
+                    if (command.annotatorIds() != null || command.arbiterId() != null) {
+                        taskRepository.saveAssignment(taskId, annotatorIds, arbiterId, now);
+                    }
+                    return AppResult.ok(null);
+                });
     }
 
     @Transactional
     public AppResult<Void> withdraw(String credential, String taskId, WithdrawTaskCommand command) {
-        LoginUser user = requireUser(credential);
-        Account account = requireAccount(user);
-        if (!identityRule.isEnabled(account)) {
-            return AppResult.fail(DISABLED);
-        }
-        if (!identityRule.hasRole(account, IdentityType.TASK_MANAGER)) {
-            return AppResult.fail(ONLY_MANAGER);
-        }
-        AnnotationTask task = taskRepository.findById(taskId).orElse(null);
-        if (task == null) {
-            return AppResult.fail(TASK_MISSING);
-        }
-        if (!account.accountId().equals(task.publisherId())) {
-            return AppResult.fail(ONLY_MANAGER);
-        }
-        if (task.status() == TaskStatus.CONFIRMED) {
-            return AppResult.fail(CONFIRMED);
-        }
-        TaskStatus next = taskRule.nextStatus(task.status(), TaskRule.TaskAction.WITHDRAW);
-        if (next == null) {
-            return AppResult.fail("当前状态不能撤回");
-        }
-        String reason = command != null ? command.reason() : null;
-        AnnotationTask changes = new AnnotationTask(task.taskId(), task.system(), task.name(),
-                task.description(), task.deadline(), task.guideVersion(), task.documentIds(),
-                task.annotatorIds(), task.arbiterId(), next, task.draftAllowed(), task.publisherId(),
-                task.publishedAt(), reason);
-        LocalDateTime now = LocalDateTime.now();
-        taskRepository.update(taskId, changes, user.accountId(), now);
-        taskRepository.updateStatus(taskId, next, user.accountId(), now);
-        return AppResult.ok(null);
+        return authTemplate.execute(credential, Set.of(IdentityType.TASK_MANAGER), taskId, null,
+                ONLY_MANAGER, ctx -> {
+                    AnnotationTask task = taskRepository.findById(taskId).orElse(null);
+                    if (task == null) {
+                        return AppResult.fail(TASK_MISSING);
+                    }
+                    if (!ctx.account().accountId().equals(task.publisherId())) {
+                        return AppResult.fail(ONLY_MANAGER);
+                    }
+                    if (task.status() == TaskStatus.CONFIRMED) {
+                        return AppResult.fail(CONFIRMED);
+                    }
+                    TaskStatus next = taskRule.nextStatus(
+                            task.status(), TaskRule.TaskAction.WITHDRAW);
+                    if (next == null) {
+                        return AppResult.fail("当前状态不能撤回");
+                    }
+                    String reason = command != null ? command.reason() : null;
+                    AnnotationTask changes = new AnnotationTask(task.taskId(), task.system(),
+                            task.name(), task.description(), task.deadline(),
+                            task.guideVersion(), task.documentIds(), task.annotatorIds(),
+                            task.arbiterId(), next, task.draftAllowed(), task.publisherId(),
+                            task.publishedAt(), reason);
+                    LocalDateTime now = LocalDateTime.now();
+                    taskRepository.update(taskId, changes, ctx.user().accountId(), now);
+                    taskRepository.updateStatus(taskId, next, ctx.user().accountId(), now);
+                    return AppResult.ok(null);
+                });
     }
 
     @Transactional
     public AppResult<Void> reopen(String credential, String taskId, ReopenTaskCommand command) {
-        LoginUser user = requireUser(credential);
-        Account account = requireAccount(user);
-        if (!identityRule.isEnabled(account)) {
-            return AppResult.fail(DISABLED);
-        }
-        if (!identityRule.hasRole(account, IdentityType.TASK_MANAGER)) {
-            return AppResult.fail(ONLY_MANAGER);
-        }
-        AnnotationTask task = taskRepository.findById(taskId).orElse(null);
-        if (task == null) {
-            return AppResult.fail(TASK_MISSING);
-        }
-        if (!account.accountId().equals(task.publisherId())) {
-            return AppResult.fail(ONLY_MANAGER);
-        }
-        if (task.status() == TaskStatus.CONFIRMED) {
-            return AppResult.fail(CONFIRMED);
-        }
-        TaskStatus next = taskRule.nextStatus(task.status(), TaskRule.TaskAction.REOPEN);
-        if (next == null) {
-            return AppResult.fail("当前状态不能重开");
-        }
-        String documentId = documentAdapter.toDocumentId(task.documentIds());
-        LocalDateTime now = LocalDateTime.now();
-        TaskRound oldRound = selectRound(taskId, documentId, command != null ? command.round() : null);
-        int sequence = 1;
-        RoundType type = RoundType.CUTTING;
-        if (oldRound != null) {
-            taskRepository.closeRound(oldRound.roundId(), now);
-            sequence = oldRound.sequence() + 1;
-            type = oldRound.type();
-        }
-        taskRepository.saveRound(new TaskRound(null, taskId, documentId, type, sequence,
-                ROUND_OPEN, now, null));
-        taskRepository.updateStatus(taskId, next, user.accountId(), now);
-        return AppResult.ok(null);
+        return authTemplate.execute(credential, Set.of(IdentityType.TASK_MANAGER), taskId, null,
+                ONLY_MANAGER, ctx -> {
+                    AnnotationTask task = taskRepository.findById(taskId).orElse(null);
+                    if (task == null) {
+                        return AppResult.fail(TASK_MISSING);
+                    }
+                    if (!ctx.account().accountId().equals(task.publisherId())) {
+                        return AppResult.fail(ONLY_MANAGER);
+                    }
+                    if (task.status() == TaskStatus.CONFIRMED) {
+                        return AppResult.fail(CONFIRMED);
+                    }
+                    TaskStatus next = taskRule.nextStatus(
+                            task.status(), TaskRule.TaskAction.REOPEN);
+                    if (next == null) {
+                        return AppResult.fail("当前状态不能重开");
+                    }
+                    String documentId = documentAdapter.toDocumentId(task.documentIds());
+                    LocalDateTime now = LocalDateTime.now();
+                    TaskRound oldRound = selectRound(taskId, documentId,
+                            command != null ? command.round() : null);
+                    int sequence = 1;
+                    RoundType type = RoundType.CUTTING;
+                    if (oldRound != null) {
+                        taskRepository.closeRound(oldRound.roundId(), now);
+                        sequence = oldRound.sequence() + 1;
+                        type = oldRound.type();
+                    }
+                    taskRepository.saveRound(new TaskRound(null, taskId, documentId, type,
+                            sequence, ROUND_OPEN, now, null));
+                    taskRepository.updateStatus(taskId, next, ctx.user().accountId(), now);
+                    return AppResult.ok(null);
+                });
     }
 
     @Transactional(readOnly = true)
     public AppResult<TaskListView> myTasks(String credential, SystemType system, int page, int size) {
-        LoginUser user = requireUser(credential);
-        Account account = requireAccount(user);
-        if (!identityRule.isEnabled(account)) {
-            return AppResult.fail(DISABLED);
-        }
-        IdentityType identity = user.identity();
-        if (identity == null) {
-            return AppResult.fail(NO_IDENTITY);
-        }
-        if (!identityRule.hasRole(account, identity)) {
-            return AppResult.fail(NO_ROLE);
-        }
-        SystemType targetSystem = system != null ? system : user.system();
-        PageResult<AnnotationTask> result = queryDispatcher.dispatch(
-                identity, user.accountId(), targetSystem, normalizePage(page), normalizeSize(size));
-        List<TaskListItem> items = result.records().stream().map(this::toListItem).toList();
-        return AppResult.ok(new TaskListView(items));
+        return authTemplate.execute(credential, null, null, null, null, ctx -> {
+            LoginUser user = ctx.user();
+            IdentityType identity = user.identity();
+            if (identity == null) {
+                return AppResult.fail(NO_IDENTITY);
+            }
+            if (!identityRule.hasRole(ctx.account(), identity)) {
+                return AppResult.fail(NO_ROLE);
+            }
+            SystemType targetSystem = system != null
+                    ? system
+                    : (user.system() != null ? user.system() : SystemType.ANNOTATION);
+            PageResult<AnnotationTask> result = queryDispatcher.dispatch(
+                    identity, user.accountId(), targetSystem,
+                    normalizePage(page), normalizeSize(size));
+            List<TaskListItem> items = result.records().stream().map(this::toListItem).toList();
+            return AppResult.ok(new TaskListView(items));
+        });
     }
 
     @Transactional(readOnly = true)
     public AppResult<TaskDetailView> detail(String credential, String taskId) {
-        LoginUser user = requireUser(credential);
-        Account account = requireAccount(user);
-        if (!identityRule.isEnabled(account)) {
-            return AppResult.fail(DISABLED);
-        }
-        AnnotationTask task = taskRepository.findById(taskId).orElse(null);
-        if (task == null) {
-            return AppResult.fail(TASK_MISSING);
-        }
-        if (!canView(task, account)) {
-            return AppResult.fail(NO_ACCESS);
-        }
-        TaskAssignment assignment = taskRepository.findAssignment(taskId).orElse(null);
-        List<String> annotators = displayNames(assignment != null
-                ? assignment.annotatorIds() : task.annotatorIds());
-        String arbiter = displayName(assignment != null ? assignment.arbiterId() : task.arbiterId());
-        String publisher = accountRepository.findById(task.publisherId())
-                .map(Account::name).orElse(task.publisherId());
-        TaskDetailView view = new TaskDetailView(task.taskId(), task.name(), task.description(),
-                formatTime(task.deadline()), task.guideVersion(),
-                documentAdapter.toDocumentId(task.documentIds()), annotators, arbiter,
-                task.status(), publisher, formatTime(task.publishedAt()), task.withdrawReason());
-        return AppResult.ok(view);
+        return authTemplate.execute(credential, null, taskId, null, null, ctx -> {
+            AnnotationTask task = taskRepository.findById(taskId).orElse(null);
+            if (task == null) {
+                return AppResult.fail(TASK_MISSING);
+            }
+            if (!canView(task, ctx.account())) {
+                return AppResult.fail(NO_ACCESS);
+            }
+            TaskAssignment assignment = taskRepository.findAssignment(taskId).orElse(null);
+            List<String> annotators = displayNames(assignment != null
+                    ? assignment.annotatorIds() : task.annotatorIds());
+            String arbiter = displayName(assignment != null
+                    ? assignment.arbiterId() : task.arbiterId());
+            String publisher = accountRepository.findById(task.publisherId())
+                    .map(Account::name).orElse(task.publisherId());
+            TaskDetailView view = new TaskDetailView(task.taskId(), task.name(),
+                    task.description(), formatTime(task.deadline()), task.guideVersion(),
+                    documentAdapter.toDocumentId(task.documentIds()), annotators, arbiter,
+                    task.status(), publisher, formatTime(task.publishedAt()),
+                    task.withdrawReason());
+            return AppResult.ok(view);
+        });
     }
 
     @Transactional(readOnly = true)
     public AppResult<TaskProgressView> progress(String credential, String taskId) {
-        LoginUser user = requireUser(credential);
-        Account account = requireAccount(user);
-        if (!identityRule.isEnabled(account)) {
-            return AppResult.fail(DISABLED);
-        }
-        AnnotationTask task = taskRepository.findById(taskId).orElse(null);
-        if (task == null) {
-            return AppResult.fail(TASK_MISSING);
-        }
-        if (!canView(task, account)) {
-            return AppResult.fail(NO_ACCESS);
-        }
-        TaskProgress progress = taskRepository.findProgress(taskId);
-        TaskAssignment assignment = taskRepository.findAssignment(taskId).orElse(null);
-        List<String> annotatorIds = assignment != null ? assignment.annotatorIds() : task.annotatorIds();
+        return authTemplate.execute(credential, null, taskId, null, null, ctx -> {
+            AnnotationTask task = taskRepository.findById(taskId).orElse(null);
+            if (task == null) {
+                return AppResult.fail(TASK_MISSING);
+            }
+            if (!canView(task, ctx.account())) {
+                return AppResult.fail(NO_ACCESS);
+            }
+            TaskProgress progress = taskRepository.findProgress(taskId);
+            TaskAssignment assignment = taskRepository.findAssignment(taskId).orElse(null);
+            List<String> annotatorIds = assignment != null
+                    ? assignment.annotatorIds() : task.annotatorIds();
+            List<Submission> submissions = progressRound(task)
+                    .map(round -> annotationRepository.findSubmissionsByRound(
+                            round.roundId(), null))
+                    .orElseGet(List::of);
+            Map<String, Submission> latest = latestSubmissions(submissions);
+            List<AnnotatorProgress> annotators = new ArrayList<>();
+            if (annotatorIds != null) {
+                for (String annotatorId : annotatorIds) {
+                    String name = accountRepository.findById(annotatorId)
+                            .map(Account::name).orElse(annotatorId);
+                    Submission submission = latest.get(annotatorId);
+                    annotators.add(new AnnotatorProgress(annotatorId, name,
+                            submission != null ? formatTime(submission.submittedAt()) : null,
+                            submission != null ? SUBMITTED : NOT_SUBMITTED));
+                }
+            }
+            TaskProgressView view = new TaskProgressView(progress.expectedCount(),
+                    progress.submittedCount(), progress.unsubmittedCount(),
+                    progress.conflictCount(), progress.confirmedCount(), annotators);
+            return AppResult.ok(view);
+        });
+    }
+
+    private Optional<TaskRound> currentRound(AnnotationTask task) {
         String documentId = documentAdapter.toDocumentId(task.documentIds());
-        List<Submission> submissions = annotationRepository.findSubmissions(
-                taskId, documentId, null, null);
-        Map<String, Submission> latest = latestSubmissions(submissions);
-        List<AnnotatorProgress> annotators = new ArrayList<>();
-        if (annotatorIds != null) {
-            for (String annotatorId : annotatorIds) {
-                String name = accountRepository.findById(annotatorId)
-                        .map(Account::name).orElse(annotatorId);
-                Submission submission = latest.get(annotatorId);
-                annotators.add(new AnnotatorProgress(annotatorId, name,
-                        submission != null ? formatTime(submission.submittedAt()) : null,
-                        submission != null ? SUBMITTED : NOT_SUBMITTED));
+        if (documentId == null) {
+            return Optional.empty();
+        }
+        for (RoundType type : roundOrder(task.status())) {
+            Optional<TaskRound> round = taskRepository.findCurrentRound(
+                    task.taskId(), documentId, type);
+            if (round.isPresent()) {
+                return round;
             }
         }
-        TaskProgressView view = new TaskProgressView(progress.expectedCount(), progress.submittedCount(),
-                progress.unsubmittedCount(), progress.conflictCount(), progress.confirmedCount(), annotators);
-        return AppResult.ok(view);
+        return Optional.empty();
+    }
+
+    private Optional<TaskRound> progressRound(AnnotationTask task) {
+        Optional<TaskRound> current = currentRound(task);
+        if (current.isPresent()) {
+            return current;
+        }
+        String documentId = documentAdapter.toDocumentId(task.documentIds());
+        if (documentId == null) {
+            return Optional.empty();
+        }
+        TaskRound latest = null;
+        for (TaskRound item : taskRepository.findRounds(task.taskId(), documentId)) {
+            if (latest == null || item.sequence() > latest.sequence()) {
+                latest = item;
+            }
+        }
+        return Optional.ofNullable(latest);
+    }
+
+    private static List<RoundType> roundOrder(TaskStatus status) {
+        if (status != null
+                && (status == TaskStatus.CUTTING_CONFIRMED
+                || status == TaskStatus.STRUCTURED_PENDING
+                || status == TaskStatus.CONFIRMED)) {
+            return List.of(RoundType.STRUCTURED, RoundType.CUTTING);
+        }
+        return List.of(RoundType.CUTTING, RoundType.STRUCTURED);
     }
 
     private TaskRound selectRound(String taskId, String documentId, Integer round) {
@@ -437,16 +470,6 @@ public class TaskAppService {
             return null;
         }
         return accountRepository.findById(accountId).map(Account::name).orElse(accountId);
-    }
-
-    private LoginUser requireUser(String credential) {
-        return sessionRepository.findByCredential(credential)
-                .orElseThrow(() -> new IllegalStateException("登录已失效，请重新登录"));
-    }
-
-    private Account requireAccount(LoginUser user) {
-        return accountRepository.findById(user.accountId())
-                .orElseThrow(() -> new IllegalStateException("账号不存在"));
     }
 
     private static LocalDateTime parseTime(String value) {

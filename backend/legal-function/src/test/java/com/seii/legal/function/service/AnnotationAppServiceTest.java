@@ -38,6 +38,7 @@ import com.seii.legal.function.dto.annotation.SaveDraftView;
 import com.seii.legal.function.dto.annotation.SubmitCommand;
 import com.seii.legal.function.dto.annotation.SubmitView;
 import com.seii.legal.function.support.AnnotationPayloadAdapter;
+import com.seii.legal.function.support.AuthActionTemplate;
 import com.seii.legal.rule.annotation.DiagramRule;
 import com.seii.legal.rule.annotation.ElementRule;
 import com.seii.legal.rule.annotation.RelationRule;
@@ -77,8 +78,10 @@ class AnnotationAppServiceTest {
     private final FakeDiagramRule diagramRuleFake = new FakeDiagramRule();
     private final ObjectMapper mapper = new ObjectMapper();
     private final AnnotationPayloadAdapter adapter = new AnnotationPayloadAdapter(mapper);
+    private final AuthActionTemplate authTemplate =
+            new AuthActionTemplate(sessions, accounts, identities);
     private final AnnotationAppService service = new AnnotationAppService(
-            sessions, accounts, tasks, annotations, identities, taskRuleFake,
+            authTemplate, tasks, annotations, taskRuleFake,
             segmentationRuleFake, elementRuleFake, relationRuleFake, diagramRuleFake, adapter);
 
     @BeforeEach
@@ -232,7 +235,7 @@ class AnnotationAppServiceTest {
     }
 
     @Test
-    void submitCuttingRoundSavesSubmissionWithRequestIdAndProgress() {
+    void submitCuttingRoundSavesSubmissionWithRequestId() {
         AppResult<SubmitView> result = service.submit("cred-1", submitCommand("req-1"));
 
         assertTrue(result.success());
@@ -250,9 +253,6 @@ class AnnotationAppServiceTest {
         assertEquals("v1", saved.guideVersion());
         assertEquals(SubmissionStatus.SUBMITTED, saved.status());
         assertEquals(2, adapter.fromStorageJson(saved.content()).segments().size());
-        assertTrue(taskRuleFake.progressCalled);
-        assertEquals("t1", taskRuleFake.progressTaskId);
-        assertEquals(1, taskRuleFake.progressSubmissions.size());
     }
 
     @Test
@@ -777,9 +777,6 @@ class AnnotationAppServiceTest {
     private static final class FakeTaskRule implements TaskRule {
         private boolean canSubmit = true;
         private TaskStatus nextStatus = TaskStatus.CUTTING_PENDING;
-        private boolean progressCalled;
-        private String progressTaskId;
-        private List<Submission> progressSubmissions;
 
         @Override
         public String recognizeDocumentType(String selectedType, byte[] file) {
@@ -813,9 +810,6 @@ class AnnotationAppServiceTest {
 
         @Override
         public TaskProgress progress(String taskId, List<Submission> submissions) {
-            progressCalled = true;
-            progressTaskId = taskId;
-            progressSubmissions = submissions;
             return new TaskProgress(1, 1, 0, 0, 0, 0);
         }
 

@@ -45,7 +45,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.function.BiFunction;
 import java.util.function.Function;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -324,7 +323,7 @@ public class StudentAppService {
     private <T> AppResult<T> withClassStudent(
             String credential,
             Function<StudentContext, AppResult<T>> action) {
-        return withAuthenticatedStudent(credential, (user, account) -> {
+        return withAuthenticatedStudent(credential, user -> {
             TeachingClass teachingClass = teachingAdminRepository
                     .findClassByStudentId(user.accountId())
                     .orElse(null);
@@ -334,27 +333,27 @@ public class StudentAppService {
             if (identityRule.resolveScope(user, null, teachingClass.classId()) != DataScope.OWN_CLASS) {
                 return AppResult.fail("当前身份不能查看该数据");
             }
-            return action.apply(new StudentContext(user, account, teachingClass));
+            return action.apply(new StudentContext(user, teachingClass));
         });
     }
 
     private <T> AppResult<T> withAnswerStudent(
             String credential,
             Function<StudentContext, AppResult<T>> action) {
-        return withAuthenticatedStudent(credential, (user, account) -> {
+        return withAuthenticatedStudent(credential, user -> {
             if (identityRule.resolveScope(user, null, null) != DataScope.OWN_ANSWERS) {
                 return AppResult.fail("当前身份不能查看该数据");
             }
             TeachingClass teachingClass = teachingAdminRepository
                     .findClassByStudentId(user.accountId())
                     .orElse(null);
-            return action.apply(new StudentContext(user, account, teachingClass));
+            return action.apply(new StudentContext(user, teachingClass));
         });
     }
 
     private <T> AppResult<T> withAuthenticatedStudent(
             String credential,
-            BiFunction<LoginUser, Account, AppResult<T>> action) {
+            Function<LoginUser, AppResult<T>> action) {
         Optional<LoginUser> session = sessionRepository.findByCredential(credential);
         if (session.isEmpty()) {
             return AppResult.fail("登录已失效，请重新登录");
@@ -372,7 +371,7 @@ public class StudentAppService {
                 || !identityRule.hasRole(account, IdentityType.STUDENT)) {
             return AppResult.fail("只有学生可以访问");
         }
-        return action.apply(user, account);
+        return action.apply(user);
     }
 
     private Exercise findOwnedExercise(StudentContext context, String exerciseId) {
@@ -492,7 +491,7 @@ public class StudentAppService {
         return page.records();
     }
 
-    private record StudentContext(LoginUser user, Account account, TeachingClass teachingClass) {
+    private record StudentContext(LoginUser user, TeachingClass teachingClass) {
         String classId() {
             return teachingClass == null ? null : teachingClass.classId();
         }

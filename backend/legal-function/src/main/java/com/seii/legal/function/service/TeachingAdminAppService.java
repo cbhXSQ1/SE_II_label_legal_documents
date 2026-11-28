@@ -390,17 +390,17 @@ public class TeachingAdminAppService {
         Account account = accountRepository.findById(user.accountId())
                 .orElseThrow(() -> new IllegalStateException("账号不存在"));
         if (!identityRule.isEnabled(account)) {
-            return new AuthOutcome(false, "账号已停用，请联系管理员", user, account, null);
+            return new AuthOutcome(false, "账号已停用，请联系管理员", user);
         }
         if (user.identity() != IdentityType.TEACHING_ADMIN
                 || !identityRule.hasRole(account, IdentityType.TEACHING_ADMIN)) {
-            return new AuthOutcome(false, forbidden, user, account, null);
+            return new AuthOutcome(false, forbidden, user);
         }
         DataScope scope = identityRule.resolveScope(user, null, classId);
         if (scope != DataScope.TEACHING_ACCOUNTS) {
-            return new AuthOutcome(false, SCOPE_FORBIDDEN, user, account, scope);
+            return new AuthOutcome(false, SCOPE_FORBIDDEN, user);
         }
-        return new AuthOutcome(true, null, user, account, scope);
+        return new AuthOutcome(true, null, user);
     }
 
     private int page(Integer page) {
@@ -452,6 +452,6 @@ public class TeachingAdminAppService {
     private record ParsedRow(int rowNo, String classNo, String studentNo, String name, String teacherNo) {
     }
 
-    private record AuthOutcome(boolean ok, String message, LoginUser user, Account account, DataScope scope) {
+    private record AuthOutcome(boolean ok, String message, LoginUser user) {
     }
 }

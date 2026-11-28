@@ -156,7 +156,7 @@ class AdjudicationAppServiceTest {
         rule.classify = List.of(
                 new DiffItem("标签选择", "P4", "SM", "SF", "x"),
                 new DiffItem("标注边界", "P5", "1", "2", "y"));
-        adjudications.decisions = List.of(decision("d1", "t1", "d1", "r1", "u-arb"));
+        adjudications.decisionsByRound = List.of(decision("d1", "t1", "d1", "r1", "u-arb"));
 
         AppResult<ConflictListView> result = service.conflicts("cred",
                 new ConflictQuery("t1", "d1", RoundType.STRUCTURED));
@@ -346,6 +346,10 @@ class AdjudicationAppServiceTest {
         round("r1", "t1", "d1", RoundType.STRUCTURED);
         annotations.unifiedCut = Optional.of(new CutVersion("c1", "t1", "d1", "u-arb",
                 RoundType.STRUCTURED, "r1", List.of(), List.of(), NOW));
+        annotations.latestElementVersion = Optional.of("e1");
+        annotations.latestRelationVersion = Optional.of("rel1");
+        annotations.diagramByRelationVersion = Optional.of(
+                new Diagram("dg1", "rel1", List.of(), List.of(), "{}", 1, null, "u", NOW));
         adjudications.decisionsByRound = List.of(decision("d1", "t1", "d1", "r1", "u-arb"));
         adjudications.reviews = List.of(new DiagramReview("rv1", "t1", "d1", "dg1",
                 "u-arb", NOW, "通过", List.of()));
@@ -358,6 +362,9 @@ class AdjudicationAppServiceTest {
         assertEquals(VersionType.FINAL, saved.versionType());
         assertEquals("r1", saved.roundId());
         assertEquals("c1", saved.cutVersionId());
+        assertEquals("e1", saved.elementVersionId());
+        assertEquals("rel1", saved.relationVersionId());
+        assertEquals("dg1", saved.diagramId());
         assertEquals("u-arb", saved.confirmedBy());
         assertEquals("t1", adjudications.confirmedTaskId);
         assertEquals("u-arb", adjudications.confirmedBy);
@@ -622,6 +629,9 @@ class AdjudicationAppServiceTest {
     private static final class FakeAnnotationRepository implements AnnotationRepository {
         private List<Submission> submissions = List.of();
         private Optional<CutVersion> unifiedCut = Optional.empty();
+        private Optional<String> latestElementVersion = Optional.empty();
+        private Optional<String> latestRelationVersion = Optional.empty();
+        private Optional<Diagram> diagramByRelationVersion = Optional.empty();
         private final Map<String, Diagram> diagrams = new HashMap<>();
         private final Map<String, List<Relation>> relationsByVersion = new HashMap<>();
         private String lastSubmissionRoundId;
@@ -684,7 +694,7 @@ class AdjudicationAppServiceTest {
 
         @Override
         public Optional<String> findLatestElementVersion(String cutVersionId) {
-            throw new UnsupportedOperationException();
+            return latestElementVersion;
         }
 
         @Override
@@ -699,7 +709,7 @@ class AdjudicationAppServiceTest {
 
         @Override
         public Optional<String> findLatestRelationVersion(String elementVersionId) {
-            throw new UnsupportedOperationException();
+            return latestRelationVersion;
         }
 
         @Override
@@ -709,7 +719,7 @@ class AdjudicationAppServiceTest {
 
         @Override
         public Optional<Diagram> findDiagramByRelationVersion(String relationVersionId) {
-            throw new UnsupportedOperationException();
+            return diagramByRelationVersion;
         }
 
         @Override
@@ -740,7 +750,6 @@ class AdjudicationAppServiceTest {
     }
 
     private static final class FakeAdjudicationRepository implements AdjudicationRepository {
-        private List<AdjudicationRecord> decisions = List.of();
         private List<AdjudicationRecord> decisionsByRound = List.of();
         private final Map<String, ExpertQuestion> questions = new HashMap<>();
         private PageResult<ExpertQuestion> expertQuestions = new PageResult<>(List.of(), 0, 1, 20);
@@ -767,7 +776,7 @@ class AdjudicationAppServiceTest {
 
         @Override
         public List<AdjudicationRecord> findDecisions(String taskId, String documentId, RoundType round) {
-            return decisions;
+            throw new AssertionError("must use findDecisionsByRound");
         }
 
         @Override

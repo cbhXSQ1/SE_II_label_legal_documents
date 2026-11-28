@@ -5,7 +5,6 @@ import com.seii.legal.common.enums.RoundType;
 import com.seii.legal.common.enums.SubmissionStatus;
 import com.seii.legal.common.enums.TaskStatus;
 import com.seii.legal.common.result.AppResult;
-import com.seii.legal.data.entity.Account;
 import com.seii.legal.data.entity.AnnotationTask;
 import com.seii.legal.data.entity.Diagram;
 import com.seii.legal.data.entity.Draft;
@@ -13,10 +12,8 @@ import com.seii.legal.data.entity.Element;
 import com.seii.legal.data.entity.Relation;
 import com.seii.legal.data.entity.Submission;
 import com.seii.legal.data.entity.TaskRound;
-import com.seii.legal.data.repository.AccountRepository;
 import com.seii.legal.data.repository.AnnotationRepository;
 import com.seii.legal.data.repository.DataConflictException;
-import com.seii.legal.data.repository.SessionRepository;
 import com.seii.legal.data.repository.TaskRepository;
 import com.seii.legal.function.dto.annotation.LoadAnnotationView;
 import com.seii.legal.function.dto.annotation.SaveDraftCommand;
@@ -25,11 +22,12 @@ import com.seii.legal.function.dto.annotation.SubmitCommand;
 import com.seii.legal.function.dto.annotation.SubmitView;
 import com.seii.legal.function.support.AnnotationPayloadAdapter;
 import com.seii.legal.function.support.AnnotationPayloadAdapter.AnnotationContent;
+import com.seii.legal.function.support.AuthActionTemplate;
+import com.seii.legal.function.support.AuthActionTemplate.AuthContext;
 import com.seii.legal.rule.annotation.DiagramRule;
 import com.seii.legal.rule.annotation.ElementRule;
 import com.seii.legal.rule.annotation.RelationRule;
 import com.seii.legal.rule.annotation.SegmentationRule;
-import com.seii.legal.rule.identity.IdentityRule;
 import com.seii.legal.rule.task.TaskRule;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -38,6 +36,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -45,14 +44,15 @@ import org.springframework.transaction.annotation.Transactional;
 public class AnnotationAppService {
 
     private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final String SESSION_EXPIRED = "登录已失效，请重新登录";
+    private static final String ACCOUNT_MISSING = "账号不存在";
+    private static final String ANNOTATOR_FORBIDDEN = "只有本任务标注员可以标注";
     private static final Set<String> PROPOSITION_TYPES = Set.of(
             "SF", "GF", "SM", "GM", "SM-C", "GM-L", "GM-I", "GM-U", "GM-M", "GM-O");
 
-    private final SessionRepository sessionRepository;
-    private final AccountRepository accountRepository;
+    private final AuthActionTemplate authTemplate;
     private final TaskRepository taskRepository;
     private final AnnotationRepository annotationRepository;
-    private final IdentityRule identityRule;
     private final TaskRule taskRule;
     private final SegmentationRule segmentationRule;
     private final ElementRule elementRule;
@@ -61,22 +61,18 @@ public class AnnotationAppService {
     private final AnnotationPayloadAdapter payloadAdapter;
 
     public AnnotationAppService(
-            SessionRepository sessionRepository,
-            AccountRepository accountRepository,
+            AuthActionTemplate authTemplate,
             TaskRepository taskRepository,
             AnnotationRepository annotationRepository,
-            IdentityRule identityRule,
             TaskRule taskRule,
             SegmentationRule segmentationRule,
             ElementRule elementRule,
             RelationRule relationRule,
             DiagramRule diagramRule,
             AnnotationPayloadAdapter payloadAdapter) {
-        this.sessionRepository = sessionRepository;
-        this.accountRepository = accountRepository;
+        this.authTemplate = authTemplate;
         this.taskRepository = taskRepository;
         this.annotationRepository = annotationRepository;
-        this.identityRule = identityRule;
         this.taskRule = taskRule;
         this.segmentationRule = segmentationRule;
         this.elementRule = elementRule;
@@ -87,152 +83,171 @@ public class AnnotationAppService {
 
     @Transactional(readOnly = true)
     public AppResult<LoadAnnotationView> load(String credential, String taskId, String documentId) {
-        AuthCheck auth = authenticate(credential, taskId);
-        if (auth.error() != null) {
-            return AppResult.fail(auth.error());
+        if (taskId == null || taskId.isBlank()) {
+            return AppResult.fail("任务不存在");
         }
-        AnnotationTask task = auth.actor().task();
-        String accountId = auth.actor().user().accountId();
-        Optional<TaskRound> round = currentRound(task, documentId, null);
-        Optional<Draft> draft = annotationRepository.findDraft(taskId, documentId, accountId);
-        List<Submission> submissions = round
-                .map(value -> annotationRepository.findSubmissionsByRound(value.roundId(), accountId))
-                .orElse(List.of());
-        Submission submission = submissions.isEmpty() ? null : submissions.get(submissions.size() - 1);
+        return authenticated(credential, taskId, ctx -> {
+                    AnnotationTask task = taskRepository.findById(taskId).orElse(null);
+                    if (task == null) {
+                        return AppResult.fail("任务不存在");
+                    }
+                    String accountId = ctx.user().accountId();
+                    if (task.annotatorIds() == null
+                            || !task.annotatorIds().contains(accountId)) {
+                        return AppResult.fail(ANNOTATOR_FORBIDDEN);
+                    }
+                    Optional<TaskRound> round = currentRound(task, documentId, null);
+                    Optional<Draft> draft = annotationRepository.findDraft(
+                            taskId, documentId, accountId);
+                    List<Submission> submissions = round
+                            .map(value -> annotationRepository.findSubmissionsByRound(
+                                    value.roundId(), accountId))
+                            .orElse(List.of());
+                    Submission submission = submissions.isEmpty()
+                            ? null : submissions.get(submissions.size() - 1);
 
-        AnnotationContent content;
-        if (submission != null) {
-            content = payloadAdapter.fromStorageJson(submission.content());
-        } else {
-            content = draft
-                    .map(value -> payloadAdapter.fromDraftJson(value.cutJson(), value.elementsJson(),
-                            value.relationsJson(), value.diagramJson()))
-                    .orElseGet(payloadAdapter::empty);
-        }
-        String roundName = round.map(value -> value.type().name()).orElse(null);
-        return AppResult.ok(new LoadAnnotationView(content, submission != null, roundName));
+                    AnnotationContent content;
+                    if (submission != null) {
+                        content = payloadAdapter.fromStorageJson(submission.content());
+                    } else {
+                        content = draft
+                                .map(value -> payloadAdapter.fromDraftJson(value.cutJson(),
+                                        value.elementsJson(), value.relationsJson(),
+                                        value.diagramJson()))
+                                .orElseGet(payloadAdapter::empty);
+                    }
+                    String roundName = round.map(value -> value.type().name()).orElse(null);
+                    return AppResult.ok(new LoadAnnotationView(
+                            content, submission != null, roundName));
+                });
     }
 
     @Transactional
     public AppResult<SaveDraftView> saveDraft(String credential, SaveDraftCommand command) {
-        AuthCheck auth = authenticate(credential, command.taskId());
-        if (auth.error() != null) {
-            return AppResult.fail(auth.error());
+        if (command.taskId() == null || command.taskId().isBlank()) {
+            return AppResult.fail("任务不存在");
         }
-        AnnotationTask task = auth.actor().task();
-        String accountId = auth.actor().user().accountId();
-        Optional<TaskRound> round = currentRound(task, command.documentId(), null);
-        if (round.isEmpty()) {
-            return AppResult.fail("当前轮次不存在");
-        }
-        TaskRound current = round.get();
-        List<Submission> existing = annotationRepository.findSubmissionsByRound(
-                current.roundId(), accountId);
-        if (!existing.isEmpty()) {
-            return AppResult.fail("本轮已经提交");
-        }
-        AnnotationContent content = payloadAdapter.merge(
-                command.content(),
-                new AnnotationContent(command.pieces(), command.segments(),
-                        command.relations(), command.diagram()));
-        LocalDateTime now = LocalDateTime.now();
-        Draft draft = new Draft(
-                command.taskId(),
-                command.documentId(),
-                accountId,
-                current.roundId(),
-                payloadAdapter.listToJson(content.pieces()),
-                payloadAdapter.listToJson(content.segments()),
-                payloadAdapter.listToJson(content.relations()),
-                payloadAdapter.listToJson(content.diagram()),
-                now);
-        annotationRepository.saveDraft(draft);
-        return AppResult.ok(new SaveDraftView(format(now)));
+        return authenticated(credential, command.taskId(), ctx -> {
+                    AnnotationTask task = taskRepository.findById(command.taskId())
+                            .orElse(null);
+                    if (task == null) {
+                        return AppResult.fail("任务不存在");
+                    }
+                    String accountId = ctx.user().accountId();
+                    if (task.annotatorIds() == null
+                            || !task.annotatorIds().contains(accountId)) {
+                        return AppResult.fail(ANNOTATOR_FORBIDDEN);
+                    }
+                    Optional<TaskRound> round = currentRound(
+                            task, command.documentId(), null);
+                    if (round.isEmpty()) {
+                        return AppResult.fail("当前轮次不存在");
+                    }
+                    TaskRound current = round.get();
+                    List<Submission> existing = annotationRepository.findSubmissionsByRound(
+                            current.roundId(), accountId);
+                    if (!existing.isEmpty()) {
+                        return AppResult.fail("本轮已经提交");
+                    }
+                    AnnotationContent content = payloadAdapter.merge(
+                            command.content(),
+                            new AnnotationContent(command.pieces(), command.segments(),
+                                    command.relations(), command.diagram()));
+                    LocalDateTime now = LocalDateTime.now();
+                    Draft draft = new Draft(
+                            command.taskId(),
+                            command.documentId(),
+                            accountId,
+                            current.roundId(),
+                            payloadAdapter.listToJson(content.pieces()),
+                            payloadAdapter.listToJson(content.segments()),
+                            payloadAdapter.listToJson(content.relations()),
+                            payloadAdapter.listToJson(content.diagram()),
+                            now);
+                    annotationRepository.saveDraft(draft);
+                    return AppResult.ok(new SaveDraftView(format(now)));
+                });
     }
 
     @Transactional
     public AppResult<SubmitView> submit(String credential, SubmitCommand command) {
-        AuthCheck auth = authenticate(credential, command.taskId());
-        if (auth.error() != null) {
-            return AppResult.fail(auth.error());
+        if (command.taskId() == null || command.taskId().isBlank()) {
+            return AppResult.fail("任务不存在");
         }
-        if (command.requestId() == null || command.requestId().isBlank()) {
-            return AppResult.fail("缺少请求标识");
-        }
-        AnnotationTask task = auth.actor().task();
-        String accountId = auth.actor().user().accountId();
-        Optional<TaskRound> round = command.round() != null
-                ? taskRepository.findCurrentRound(command.taskId(), command.documentId(), command.round())
-                : currentRound(task, command.documentId(), null);
-        if (round.isEmpty()) {
-            return AppResult.fail("当前轮次不存在");
-        }
-        TaskRound current = round.get();
-        LocalDateTime now = LocalDateTime.now();
-        if (!taskRule.canSubmit(task.deadline(), now)) {
-            return AppResult.fail("已过截止时间，不能提交");
-        }
-        if (taskRule.nextStatus(task.status(), TaskRule.TaskAction.SUBMIT) == null) {
-            return AppResult.fail("当前任务状态不能提交");
-        }
-        AnnotationContent content = payloadAdapter.merge(
-                command.content(),
-                new AnnotationContent(command.pieces(), command.segments(),
-                        command.relations(), command.diagram()));
-        List<String> unfinished = unfinished(current, content);
-        if (!unfinished.isEmpty()) {
-            return AppResult.fail("未完成项：" + String.join("；", unfinished));
-        }
-        Submission submission = new Submission(
-                null,
-                command.taskId(),
-                command.documentId(),
-                current.type(),
-                current.roundId(),
-                accountId,
-                now,
-                task.guideVersion(),
-                payloadAdapter.toStorageJson(content, null),
-                SubmissionStatus.SUBMITTED,
-                null);
-        String submissionId;
-        try {
-            submissionId = annotationRepository.saveSubmission(submission, command.requestId());
-        } catch (DataConflictException e) {
-            return AppResult.fail(e.getMessage());
-        }
-        List<Submission> roundSubmissions = annotationRepository.findSubmissionsByRound(current.roundId(), null);
-        taskRule.progress(task.taskId(), roundSubmissions == null ? List.of() : roundSubmissions);
-        return AppResult.ok(new SubmitView(submissionId, format(now)));
+        return authenticated(credential, command.taskId(), ctx -> {
+                    AnnotationTask task = taskRepository.findById(command.taskId())
+                            .orElse(null);
+                    if (task == null) {
+                        return AppResult.fail("任务不存在");
+                    }
+                    String accountId = ctx.user().accountId();
+                    if (task.annotatorIds() == null
+                            || !task.annotatorIds().contains(accountId)) {
+                        return AppResult.fail(ANNOTATOR_FORBIDDEN);
+                    }
+                    if (command.requestId() == null || command.requestId().isBlank()) {
+                        return AppResult.fail("缺少请求标识");
+                    }
+                    Optional<TaskRound> round = command.round() != null
+                            ? taskRepository.findCurrentRound(command.taskId(),
+                                    command.documentId(), command.round())
+                            : currentRound(task, command.documentId(), null);
+                    if (round.isEmpty()) {
+                        return AppResult.fail("当前轮次不存在");
+                    }
+                    TaskRound current = round.get();
+                    LocalDateTime now = LocalDateTime.now();
+                    if (!taskRule.canSubmit(task.deadline(), now)) {
+                        return AppResult.fail("已过截止时间，不能提交");
+                    }
+                    if (taskRule.nextStatus(
+                            task.status(), TaskRule.TaskAction.SUBMIT) == null) {
+                        return AppResult.fail("当前任务状态不能提交");
+                    }
+                    AnnotationContent content = payloadAdapter.merge(
+                            command.content(),
+                            new AnnotationContent(command.pieces(), command.segments(),
+                                    command.relations(), command.diagram()));
+                    List<String> unfinished = unfinished(current, content);
+                    if (!unfinished.isEmpty()) {
+                        return AppResult.fail("未完成项：" + String.join("；", unfinished));
+                    }
+                    Submission submission = new Submission(
+                            null,
+                            command.taskId(),
+                            command.documentId(),
+                            current.type(),
+                            current.roundId(),
+                            accountId,
+                            now,
+                            task.guideVersion(),
+                            payloadAdapter.toStorageJson(content, null),
+                            SubmissionStatus.SUBMITTED,
+                            null);
+                    String submissionId;
+                    try {
+                        submissionId = annotationRepository.saveSubmission(
+                                submission, command.requestId());
+                    } catch (DataConflictException e) {
+                        return AppResult.fail(e.getMessage());
+                    }
+                    return AppResult.ok(new SubmitView(submissionId, format(now)));
+                });
     }
 
-    private AuthCheck authenticate(String credential, String taskId) {
-        if (taskId == null || taskId.isBlank()) {
-            return new AuthCheck(null, "任务不存在");
+    private <T> AppResult<T> authenticated(
+            String credential,
+            String taskId,
+            Function<AuthContext, AppResult<T>> action) {
+        try {
+            return authTemplate.execute(credential, Set.of(IdentityType.ANNOTATOR),
+                    taskId, null, ANNOTATOR_FORBIDDEN, action);
+        } catch (IllegalStateException e) {
+            if (SESSION_EXPIRED.equals(e.getMessage()) || ACCOUNT_MISSING.equals(e.getMessage())) {
+                return AppResult.fail(e.getMessage());
+            }
+            throw e;
         }
-        var user = sessionRepository.findByCredential(credential).orElse(null);
-        if (user == null) {
-            return new AuthCheck(null, "登录已失效，请重新登录");
-        }
-        Account account = accountRepository.findById(user.accountId()).orElse(null);
-        if (account == null) {
-            return new AuthCheck(null, "账号不存在");
-        }
-        if (!identityRule.isEnabled(account)) {
-            return new AuthCheck(null, "账号已停用，请联系管理员");
-        }
-        if (user.identity() != IdentityType.ANNOTATOR
-                || !identityRule.hasRole(account, IdentityType.ANNOTATOR)) {
-            return new AuthCheck(null, "只有本任务标注员可以标注");
-        }
-        AnnotationTask task = taskRepository.findById(taskId).orElse(null);
-        if (task == null) {
-            return new AuthCheck(null, "任务不存在");
-        }
-        if (task.annotatorIds() == null || !task.annotatorIds().contains(user.accountId())) {
-            return new AuthCheck(null, "只有本任务标注员可以标注");
-        }
-        return new AuthCheck(new Actor(user, account, task), null);
     }
 
     private Optional<TaskRound> currentRound(AnnotationTask task, String documentId, RoundType requested) {
@@ -402,14 +417,5 @@ public class AnnotationAppService {
 
     private static String format(LocalDateTime time) {
         return time.format(TIME_FORMAT);
-    }
-
-    private record Actor(
-            com.seii.legal.common.enums.LoginUser user,
-            Account account,
-            AnnotationTask task) {
-    }
-
-    private record AuthCheck(Actor actor, String error) {
     }
 }

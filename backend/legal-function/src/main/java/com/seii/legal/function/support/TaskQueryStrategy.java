@@ -9,9 +9,5 @@ public interface TaskQueryStrategy {
 
     IdentityType supportedIdentity();
 
-    PageResult<AnnotationTask> queryMyTasks(String accountId, int page, int size);
-
-    default PageResult<AnnotationTask> queryMyTasks(String accountId, SystemType system, int page, int size) {
-        return queryMyTasks(accountId, page, size);
-    }
+    PageResult<AnnotationTask> queryMyTasks(String accountId, SystemType system, int page, int size);
 }

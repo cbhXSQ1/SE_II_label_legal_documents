@@ -44,6 +44,7 @@ import com.seii.legal.function.dto.task.WithdrawTaskCommand;
 import com.seii.legal.function.support.AdminTaskQueryStrategy;
 import com.seii.legal.function.support.AnnotatorTaskQueryStrategy;
 import com.seii.legal.function.support.ArbiterTaskQueryStrategy;
+import com.seii.legal.function.support.AuthActionTemplate;
 import com.seii.legal.function.support.ManagerTaskQueryStrategy;
 import com.seii.legal.function.support.TaskDocumentAdapter;
 import com.seii.legal.function.support.TaskQueryDispatcher;
@@ -87,8 +88,10 @@ class TaskAppServiceTest {
             new AnnotatorTaskQueryStrategy(tasks),
             new ArbiterTaskQueryStrategy(tasks),
             new AdminTaskQueryStrategy(tasks)));
+    private final AuthActionTemplate authTemplate =
+            new AuthActionTemplate(sessions, accounts, identities);
     private final TaskAppService service = new TaskAppService(
-            sessions, accounts, identities, tasks, annotations, guides, rules,
+            authTemplate, accounts, identities, tasks, annotations, guides, rules,
             new TaskDocumentAdapter(), dispatcher);
 
     TaskAppServiceTest() {
@@ -379,6 +382,8 @@ class TaskAppServiceTest {
     @Test
     void progressUsesRepositoryProgressAndSubmissions() {
         tasks.put(task("t1", TaskStatus.STRUCTURED_PENDING));
+        tasks.rounds.put("r1", new TaskRound("r1", "t1", "d1", RoundType.CUTTING, 1, "OPEN",
+                LocalDateTime.of(2026, 9, 1, 9, 0), null));
         tasks.progress = new TaskProgress(2, 1, 1, 3, 0, 0.0);
         tasks.assignments.put("t1", new TaskAssignment("t1", List.of("a1", "a2"), "arb",
                 LocalDateTime.of(2026, 1, 1, 9, 0)));
@@ -396,6 +401,7 @@ class TaskAppServiceTest {
         assertEquals(3, view.conflictCount());
         assertEquals(0, view.confirmedCount());
         assertEquals(2, view.annotators().size());
+        assertEquals("r1", annotations.lastQueriedRoundId);
         AnnotatorProgress first = view.annotators().get(0);
         assertEquals("a1", first.id());
         assertEquals("张标注", first.name());
@@ -690,6 +696,7 @@ class TaskAppServiceTest {
 
     private static final class FakeAnnotationRepository implements AnnotationRepository {
         private final List<Submission> submissions = new ArrayList<>();
+        private String lastQueriedRoundId;
 
         @Override
         public List<Submission> findSubmissions(String taskId, String documentId, RoundType round, String annotatorId) {
@@ -798,7 +805,11 @@ class TaskAppServiceTest {
 
         @Override
         public List<Submission> findSubmissionsByRound(String roundId, String annotatorId) {
-            throw new UnsupportedOperationException();
+            lastQueriedRoundId = roundId;
+            return submissions.stream()
+                    .filter(s -> s.roundId().equals(roundId))
+                    .filter(s -> annotatorId == null || annotatorId.equals(s.annotatorId()))
+                    .toList();
         }
 
         @Override

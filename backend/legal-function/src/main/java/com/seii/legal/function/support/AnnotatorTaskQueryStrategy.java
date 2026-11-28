@@ -1,6 +1,7 @@
 package com.seii.legal.function.support;
 
 import com.seii.legal.common.enums.IdentityType;
+import com.seii.legal.common.enums.SystemType;
 import com.seii.legal.common.page.PageResult;
 import com.seii.legal.data.entity.AnnotationTask;
 import com.seii.legal.data.repository.TaskRepository;
@@ -21,7 +22,7 @@ public class AnnotatorTaskQueryStrategy implements TaskQueryStrategy {
     }
 
     @Override
-    public PageResult<AnnotationTask> queryMyTasks(String accountId, int page, int size) {
+    public PageResult<AnnotationTask> queryMyTasks(String accountId, SystemType system, int page, int size) {
         return taskRepository.findByAnnotator(accountId, page, size);
     }
 }

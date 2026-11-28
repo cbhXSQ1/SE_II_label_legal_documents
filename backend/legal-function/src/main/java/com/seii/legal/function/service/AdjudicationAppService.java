@@ -96,12 +96,9 @@ public class AdjudicationAppService {
         if (auth.error() != null) {
             return AppResult.fail(auth.error());
         }
-        AnnotationTask task = taskRepository.findById(command.taskId()).orElse(null);
-        if (task == null) {
-            return AppResult.fail("任务不存在");
-        }
-        if (!command.taskId().equals(task.taskId()) || !auth.actor().user().accountId().equals(task.arbiterId())) {
-            return AppResult.fail(ARBITER_FORBIDDEN);
+        TaskAccess access = arbiterTask(command.taskId(), auth.actor().user().accountId());
+        if (access.error() != null) {
+            return AppResult.fail(access.error());
         }
         TaskRound round = currentRound(command.taskId(), command.documentId(), command.round());
         if (round == null) {
@@ -141,19 +138,15 @@ public class AdjudicationAppService {
         if (auth.error() != null) {
             return AppResult.fail(auth.error());
         }
-        AnnotationTask task = taskRepository.findById(query.taskId()).orElse(null);
-        if (task == null) {
-            return AppResult.fail("任务不存在");
-        }
-        if (!auth.actor().user().accountId().equals(task.arbiterId())) {
-            return AppResult.fail(ARBITER_FORBIDDEN);
+        TaskAccess access = arbiterTask(query.taskId(), auth.actor().user().accountId());
+        if (access.error() != null) {
+            return AppResult.fail(access.error());
         }
         TaskRound round = currentRound(query.taskId(), query.documentId(), query.round());
         if (round == null) {
             return AppResult.fail("当前轮次不存在");
         }
-        List<AdjudicationRecord> decisions = adjudicationRepository.findDecisions(
-                query.taskId(), query.documentId(), query.round());
+        List<AdjudicationRecord> decisions = adjudicationRepository.findDecisionsByRound(round.roundId());
         List<ConflictView> conflicts = new ArrayList<>();
         Set<String> decidedIds = decisions.stream()
                 .map(AdjudicationRecord::conflictId)
@@ -191,18 +184,14 @@ public class AdjudicationAppService {
         if (auth.error() != null) {
             return AppResult.fail(auth.error());
         }
-        AnnotationTask task = taskRepository.findById(command.taskId()).orElse(null);
-        if (task == null) {
-            return AppResult.fail("任务不存在");
-        }
-        if (!auth.actor().user().accountId().equals(task.arbiterId())) {
-            return AppResult.fail(ARBITER_FORBIDDEN);
+        TaskAccess access = arbiterTask(command.taskId(), auth.actor().user().accountId());
+        if (access.error() != null) {
+            return AppResult.fail(access.error());
         }
         TaskRound round = currentRound(command.taskId(), command.documentId(), command.round());
         if (round == null) {
             return AppResult.fail("当前轮次不存在");
         }
-        annotationRepository.findSubmissionsByRound(round.roundId(), null);
         AdjudicationRecord record = new AdjudicationRecord(
                 null,
                 command.taskId(),
@@ -232,22 +221,16 @@ public class AdjudicationAppService {
         if (auth.error() != null) {
             return AppResult.fail(auth.error());
         }
-        AnnotationTask task = taskRepository.findById(command.taskId()).orElse(null);
-        if (task == null) {
-            return AppResult.fail("任务不存在");
-        }
-        if (!auth.actor().user().accountId().equals(task.arbiterId())) {
-            return AppResult.fail(ARBITER_FORBIDDEN);
+        TaskAccess access = arbiterTask(command.taskId(), auth.actor().user().accountId());
+        if (access.error() != null) {
+            return AppResult.fail(access.error());
         }
         if (command.expertId() == null || command.expertId().isBlank()) {
             return AppResult.fail("请选择领域专家");
         }
+        AnnotationTask task = access.task();
         String documentId = task.documentIds() == null || task.documentIds().isEmpty()
                 ? null : task.documentIds().get(0);
-        TaskRound round = finalRound(command.taskId(), documentId);
-        if (round != null) {
-            annotationRepository.findSubmissionsByRound(round.roundId(), null);
-        }
         ExpertQuestion question = new ExpertQuestion(
                 null,
                 command.taskId(),
@@ -300,10 +283,6 @@ public class AdjudicationAppService {
         if (!auth.actor().user().accountId().equals(question.expertId())) {
             return AppResult.fail("只有被指定的专家可以回复");
         }
-        TaskRound round = finalRound(question.taskId(), question.documentId());
-        if (round != null) {
-            annotationRepository.findSubmissionsByRound(round.roundId(), null);
-        }
         QuestionStatus status = replyStatus(command);
         ExpertReply reply = new ExpertReply(
                 null,
@@ -322,16 +301,9 @@ public class AdjudicationAppService {
         if (auth.error() != null) {
             return AppResult.fail(auth.error());
         }
-        AnnotationTask task = taskRepository.findById(command.taskId()).orElse(null);
-        if (task == null) {
-            return AppResult.fail("任务不存在");
-        }
-        if (!auth.actor().user().accountId().equals(task.arbiterId())) {
-            return AppResult.fail(ARBITER_FORBIDDEN);
-        }
-        TaskRound round = finalRound(command.taskId(), command.documentId());
-        if (round != null) {
-            annotationRepository.findSubmissionsByRound(round.roundId(), null);
+        TaskAccess access = arbiterTask(command.taskId(), auth.actor().user().accountId());
+        if (access.error() != null) {
+            return AppResult.fail(access.error());
         }
         Diagram diagram = annotationRepository.findDiagram(command.diagramId()).orElse(null);
         if (diagram == null) {
@@ -382,7 +354,6 @@ public class AdjudicationAppService {
         if (round == null) {
             return AppResult.fail("当前轮次不存在");
         }
-        annotationRepository.findSubmissionsByRound(round.roundId(), null);
         Optional<FinalVersion> version = adjudicationRepository.findFinalVersionByRound(round.roundId(), VersionType.FINAL);
         if (version.isEmpty()) {
             version = adjudicationRepository.findFinalVersion(query.taskId(), query.documentId(), VersionType.FINAL);
@@ -411,13 +382,11 @@ public class AdjudicationAppService {
         if (auth.error() != null) {
             return AppResult.fail(auth.error());
         }
-        AnnotationTask task = taskRepository.findById(command.taskId()).orElse(null);
-        if (task == null) {
-            return AppResult.fail("任务不存在");
+        TaskAccess access = arbiterTask(command.taskId(), auth.actor().user().accountId());
+        if (access.error() != null) {
+            return AppResult.fail(access.error());
         }
-        if (!auth.actor().user().accountId().equals(task.arbiterId())) {
-            return AppResult.fail(ARBITER_FORBIDDEN);
-        }
+        AnnotationTask task = access.task();
         if (task.status() == TaskStatus.CONFIRMED) {
             return AppResult.fail("任务已确认");
         }
@@ -425,7 +394,6 @@ public class AdjudicationAppService {
         if (round == null) {
             return AppResult.fail("当前轮次不存在");
         }
-        annotationRepository.findSubmissionsByRound(round.roundId(), null);
         List<AdjudicationRecord> decisions = adjudicationRepository.findDecisionsByRound(round.roundId());
         List<DiagramReview> reviews = adjudicationRepository.findDiagramReviews(
                 command.taskId(), command.documentId());
@@ -434,6 +402,14 @@ public class AdjudicationAppService {
         if (issues != null && !issues.isEmpty()) {
             return AppResult.fail("存在未完成项：" + String.join("；", issues));
         }
+        String cutVersionId = unifiedCut == null ? null : unifiedCut.versionId();
+        String elementVersionId = cutVersionId == null ? null
+                : annotationRepository.findLatestElementVersion(cutVersionId).orElse(null);
+        String relationVersionId = elementVersionId == null ? null
+                : annotationRepository.findLatestRelationVersion(elementVersionId).orElse(null);
+        String diagramId = relationVersionId == null ? null
+                : annotationRepository.findDiagramByRelationVersion(relationVersionId)
+                        .map(Diagram::diagramId).orElse(null);
         LocalDateTime now = LocalDateTime.now();
         FinalVersion version = new FinalVersion(
                 null,
@@ -441,10 +417,10 @@ public class AdjudicationAppService {
                 command.documentId(),
                 round.roundId(),
                 VersionType.FINAL,
-                unifiedCut == null ? null : unifiedCut.versionId(),
-                null,
-                null,
-                null,
+                cutVersionId,
+                elementVersionId,
+                relationVersionId,
+                diagramId,
                 task.guideVersion(),
                 auth.actor().user().accountId(),
                 now,
@@ -471,6 +447,17 @@ public class AdjudicationAppService {
             return new AuthAttempt(null, forbidden);
         }
         return new AuthAttempt(new Actor(user, account), null);
+    }
+
+    private TaskAccess arbiterTask(String taskId, String accountId) {
+        AnnotationTask task = taskRepository.findById(taskId).orElse(null);
+        if (task == null) {
+            return new TaskAccess(null, "任务不存在");
+        }
+        if (!accountId.equals(task.arbiterId())) {
+            return new TaskAccess(null, ARBITER_FORBIDDEN);
+        }
+        return new TaskAccess(task, null);
     }
 
     private TaskRound currentRound(String taskId, String documentId, RoundType round) {
@@ -560,6 +547,9 @@ public class AdjudicationAppService {
 
     private static double round1(double value) {
         return Math.round(value * 10.0) / 10.0;
+    }
+
+    private record TaskAccess(AnnotationTask task, String error) {
     }
 
     private record Actor(LoginUser user, Account account) {

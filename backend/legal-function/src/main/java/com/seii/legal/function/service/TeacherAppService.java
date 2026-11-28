@@ -359,15 +359,9 @@ public class TeacherAppService {
         if (!auth.ok()) {
             return AppResult.fail(auth.message());
         }
-        if (blank(classId)) {
-            return AppResult.fail("请选择班级");
-        }
-        TeachingClass teachingClass = teachingAdminRepository.findClass(classId).orElse(null);
-        if (teachingClass == null) {
-            return AppResult.fail("班级不存在");
-        }
-        if (!auth.accountId().equals(teachingClass.teacherId())) {
-            return AppResult.fail("只能查看自己班级的学习情况");
+        String ownershipError = classOwnershipError(auth.accountId(), classId, "只能查看自己班级的学习情况");
+        if (ownershipError != null) {
+            return AppResult.fail(ownershipError);
         }
         int threshold = teachingRepository.findWeakThreshold(classId).orElse(DEFAULT_THRESHOLD);
         List<StudentLearningView> students = new ArrayList<>();
@@ -397,15 +391,9 @@ public class TeacherAppService {
         if (!auth.ok()) {
             return AppResult.fail(auth.message());
         }
-        if (blank(command.classId())) {
-            return AppResult.fail("请选择班级");
-        }
-        TeachingClass teachingClass = teachingAdminRepository.findClass(command.classId()).orElse(null);
-        if (teachingClass == null) {
-            return AppResult.fail("班级不存在");
-        }
-        if (!auth.accountId().equals(teachingClass.teacherId())) {
-            return AppResult.fail("只能设置自己班级的薄弱阈值");
+        String ownershipError = classOwnershipError(auth.accountId(), command.classId(), "只能设置自己班级的薄弱阈值");
+        if (ownershipError != null) {
+            return AppResult.fail(ownershipError);
         }
         int threshold = command.threshold() == null ? DEFAULT_THRESHOLD : command.threshold();
         teachingRepository.saveWeakThreshold(command.classId(), threshold);
@@ -418,15 +406,9 @@ public class TeacherAppService {
         if (!auth.ok()) {
             return AppResult.fail(auth.message());
         }
-        if (blank(classId)) {
-            return AppResult.fail("请选择班级");
-        }
-        TeachingClass teachingClass = teachingAdminRepository.findClass(classId).orElse(null);
-        if (teachingClass == null) {
-            return AppResult.fail("班级不存在");
-        }
-        if (!auth.accountId().equals(teachingClass.teacherId())) {
-            return AppResult.fail("只能查看自己班级的针对性练习");
+        String ownershipError = classOwnershipError(auth.accountId(), classId, "只能查看自己班级的针对性练习");
+        if (ownershipError != null) {
+            return AppResult.fail(ownershipError);
         }
         List<String> ids = splitIds(pointIds);
         if (ids.isEmpty()) {
@@ -518,6 +500,20 @@ public class TeacherAppService {
         return teachingAdminRepository.findClass(classId)
                 .map(teachingClass -> teacherId.equals(teachingClass.teacherId()))
                 .orElse(false);
+    }
+
+    private String classOwnershipError(String teacherId, String classId, String forbiddenMessage) {
+        if (blank(classId)) {
+            return "请选择班级";
+        }
+        TeachingClass teachingClass = teachingAdminRepository.findClass(classId).orElse(null);
+        if (teachingClass == null) {
+            return "班级不存在";
+        }
+        if (!teacherId.equals(teachingClass.teacherId())) {
+            return forbiddenMessage;
+        }
+        return null;
     }
 
     private List<String> teacherClassIds(String teacherId) {

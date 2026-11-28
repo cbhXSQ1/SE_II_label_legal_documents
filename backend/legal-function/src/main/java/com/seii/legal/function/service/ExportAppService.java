@@ -85,7 +85,10 @@ public class ExportAppService {
                     continue;
                 }
                 FinalVersion version = findFinalVersion(task).orElse(null);
-                String confirmedAt = version == null || version.confirmedAt() == null
+                if (version == null) {
+                    continue;
+                }
+                String confirmedAt = version.confirmedAt() == null
                         ? null : version.confirmedAt().format(TIME_FORMAT);
                 int annotatorCount = task.annotatorIds() == null ? 0 : task.annotatorIds().size();
                 tasks.add(new ExportTaskView(task.taskId(), task.name(), confirmedAt,
